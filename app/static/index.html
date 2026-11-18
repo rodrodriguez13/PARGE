@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Site Deployment Kit · Altavia × Idóneos</title>
+<link rel="icon" href="/static/logo_altavia.png">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="logos">
+      <img src="/static/logo_idoneos.png" alt="Idóneos" class="logo-id">
+      <img src="/static/logo_altavia.png" alt="Altavia" class="logo-al">
+    </div>
+    <div id="siteLogo" class="sitelogo"></div>
+    <div class="site-pick">
+      <label>Sitio</label>
+      <select id="projectSelect"></select>
+      <button class="link" id="newProject">+ Nuevo sitio</button>
+    </div>
+    <nav id="nav"></nav>
+    <div class="soon">
+      <div class="soon-t">Próximos módulos</div>
+      <div class="soon-i">4 · Avance diario (reporte)</div>
+      <div class="soon-i">5 · Reporte y Provisioning final</div>
+    </div>
+    <div id="aiChip" class="chip"></div>
+    <div id="whoami" class="whoami"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
