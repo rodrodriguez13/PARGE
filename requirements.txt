@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn>=0.29
+sqlalchemy>=2.0
+python-multipart
+openpyxl
+pymupdf
+opencv-python-headless
+numpy
+pillow
+pytesseract      # OCR local de respaldo (requiere el binario tesseract-ocr instalado)
+anthropic        # lectura de etiquetas con visión (ANTHROPIC_API_KEY)
+psycopg2-binary   # conexión a Postgres (Supabase)
