@@ -198,6 +198,13 @@ function viewSettings(m) {
       if (!confirm('¿Borrar este sitio y todo su inventario?')) return;
       await api('DELETE', `/api/projects/${pid()}`); S.project = null; await loadProjects(); toast('Sitio borrado');
     }) }, 'Borrar sitio')));
+  m.append(h('div', { class: 'card' }, h('h2', {}, 'Vaciar datos cargados'),
+    h('p', { class: 'hint' }, 'Borra equipos, racks, escaneos, el AP Plan y las fotos de este sitio, y conserva los ajustes (nombres, plantillas, logo). Útil para pasar de las pruebas a la instalación real.'),
+    h('button', { class: 'btn danger', onclick: guard(async () => {
+      const t = prompt('Esto borra TODO lo cargado en este sitio y no se puede deshacer.\nEscribe VACIAR para confirmar:');
+      if (t !== 'VACIAR') return;
+      await api('POST', `/api/projects/${pid()}/reset`, { confirm: 'VACIAR' }); S.plan = null; S.portmap = null; S.instSel = null; await refreshAll(); toast('Datos vaciados'); render();
+    }) }, 'Vaciar datos cargados')));
 }
 let lastTpl = null; let addMode = null;
 document.addEventListener('focusin', e => { if (e.target.classList && e.target.classList.contains('tplinput')) lastTpl = e.target; });
