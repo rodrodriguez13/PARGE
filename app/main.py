@@ -188,6 +188,21 @@ def delete_project(pid: int, db: Session = Depends(get_db)):
     db.delete(_project(db, pid)); db.commit(); return {"ok": True}
 
 
+@app.post("/api/projects/{pid}/reset")
+def reset_project(pid: int, body: dict = Body(...), db: Session = Depends(get_db)):
+    """Vacía lo cargado (equipos, racks, escaneos, AP Plan, fotos) y conserva los ajustes del sitio. Para pasar de pruebas a datos reales."""
+    if body.get("confirm") != "VACIAR": raise HTTPException(400, "Falta la confirmación")
+    p = _project(db, pid)
+    for d in p.devices:
+        if d.photo: storage.delete(d.photo, db)
+    for pl in db.query(ApPlan).filter_by(project_id=pid): storage.delete(f"plan:{pl.id}", db); db.delete(pl)
+    for sc in db.query(Scan).filter_by(project_id=pid): db.delete(sc)
+    for d in list(p.devices): db.delete(d)
+    for r in list(p.racks): db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/name-preview")
 def name_preview(template: str, inn: str = "PARGE", model: str = "CW9172H", floor: str = "2", room: str = "202",
                  loc: str = "MDF", role: str = "AP", n: int = 23, zone: str = "CORR"):
