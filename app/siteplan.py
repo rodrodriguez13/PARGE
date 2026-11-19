@@ -34,12 +34,8 @@ def apply(db, p):
     cfg["site_plan"] = plan
     report = {"warnings": [], "ports": {}}
 
-    # zonas por modelo: los CW9172I y CW9174I son de pasillo (CORR)
-    zones = dict(cfg.get("model_zones") or {})
-    for d in p.devices:
-        if d.dtype == "AP" and d.model and d.model not in zones and re.search(r"9172I|9174I", d.model.upper()):
-            zones[d.model] = "CORR"
-    cfg["model_zones"] = zones
+    # la zona (CORR…) ya no se fija por modelo: se escribe por equipo
+    cfg["model_zones"] = {}
     p.config = cfg
 
     # racks
@@ -74,7 +70,7 @@ def apply(db, p):
     feeds = {"corridor": [], "rooms": []}
     for d in aps:
         if d.spare or not d.box_code: continue
-        feeds["corridor" if zones.get(d.model) else "rooms"].append(d)
+        feeds["corridor" if re.search(r"9172I|9174I", (d.model or "").upper()) else "rooms"].append(d)
     for k in feeds: feeds[k].sort(key=lambda d: (_num(d.box_code), d.id))
     for d in aps:                                           # los que no entran en ninguna lista pierden su puerto automático
         if not d.port_manual and (d.spare or not d.box_code): d.sw_id = d.sw_port = None

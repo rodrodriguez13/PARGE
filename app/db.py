@@ -84,6 +84,7 @@ class Device(Base):
     installed = Column(Boolean, default=False)      # el técnico lo marcó como instalado
     installed_at = Column(DateTime, nullable=True)
     install_note = Column(String, default="")
+    zone = Column(String, default="")               # zona común del AP (CORR…): vacío = AP de habitación
     photo = Column(String, default="")              # clave de la foto de instalación (tabla files)
     installed_by = Column(String, default="")       # email de quien lo marcó
     scan_id = Column(Integer, nullable=True)
@@ -153,7 +154,7 @@ def init_db():
     cols = {c["name"] for c in inspect(engine).get_columns("devices")}
     new_cols = {"spare": "BOOLEAN DEFAULT 0", "sw_id": "INTEGER", "sw_port": "INTEGER", "port_manual": "BOOLEAN DEFAULT 0",
                 "installed": "BOOLEAN DEFAULT 0", "installed_at": "DATETIME", "install_note": "VARCHAR DEFAULT ''",
-                "photo": "VARCHAR DEFAULT ''", "installed_by": "VARCHAR DEFAULT ''"}
+                "photo": "VARCHAR DEFAULT ''", "installed_by": "VARCHAR DEFAULT ''", "zone": "VARCHAR DEFAULT ''"}
     for name, ddl in new_cols.items():
         if name not in cols:
             with engine.begin() as cn:

@@ -65,7 +65,7 @@ function showLogin(msg) {
 }
 function logout() { fetch('/api/logout', { method: 'POST' }).then(() => location.reload()); }
 async function boot() {
-  const cfg = await (await fetch('/api/config')).json(); S.team = cfg.team;
+  const cfg = await (await fetch('/api/config')).json(); S.team = cfg.team; const vv = document.getElementById('ver'); if (vv) vv.textContent = 'versión ' + (cfg.version || '');
   if (cfg.auth && !cfg.logged_in) return showLogin();
   S.status = await api('GET', '/api/status');
   S.profiles = await api('GET', '/api/profiles');
@@ -147,7 +147,7 @@ function viewSettings(m) {
   m.append(h('div', { class: 'card' }, h('h2', {}, 'Cómo se nombran los equipos'),
     h('div', { class: 'hint' }, 'Todo automático según el estándar Hilton:'),
     h('div', { class: 'mono', style: 'margin:6px 0' }, 'AP habitación   HLT-PARGE-9172H-2-203-AP021'),
-    h('div', { class: 'mono' }, 'AP pasillo      HLT-PARGE-9172I-1-101-CORR-AP010'),
+    h('div', { class: 'mono' }, 'AP con zona      HLT-PARGE-9172I-1-101-CORR-AP010'),
     h('div', { class: 'mono' }, 'Switch          HLT-PARGE-9300-IDF-AS03'),
     h('div', { class: 'hint', style: 'margin-top:8px' }, 'Plantas: LL (sótano), GF (planta baja) y 1 a 7. Los APs 9172I y 9174I llevan la zona CORR. Los números de AP llevan 3 dígitos (AP001…AP052).')));
   m.append(h('div', { class: 'card' }, h('h2', {}, 'Vaciar datos cargados'),
@@ -179,10 +179,14 @@ function viewInventory(m) {
     const fd = new FormData(); fd.append('file', e.target.files[0]); const r = await api('POST', `/api/projects/${pid()}/inventory/import`, fd);
     S.lastImport = r.skipped || []; toast(`Leídos ${r.added} equipos activos nuevos, ${r.matched} validados contra lo ya recibido`); e.target.value = ''; await refreshAll(); render();
   }) });
+  const mer = h('input', { type: 'file', accept: '.csv', multiple: true, style: 'display:none', onchange: guard(async e => {
+    const fd = new FormData(); [...e.target.files].forEach(f => fd.append('files', f)); const r = await api('POST', `/api/projects/${pid()}/meraki`, fd);
+    toast('Meraki: ' + Object.entries(r).map(([k, v]) => `${v.loaded} ${k === 'aps' ? 'APs' : 'switches'}`).join(' · ')); e.target.value = ''; await refreshAll(); render(); }) });
   const cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
   const pick = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
   m.append(h('div', { class: 'card tint' }, h('div', { class: 'row' },
     h('button', { class: 'btn', onclick: () => up.click() }, '⬆ Subir plantilla de inventario'),
+    h('button', { class: 'btn', title: 'access_points.csv y switches.csv del dashboard de Meraki', onclick: () => mer.click() }, '⬆ Listados de Meraki (CSV)'),
     h('button', { class: 'btn', onclick: () => download('/api/inventory/template.xlsx') }, 'Descargar plantilla vacía'),
     h('span', { class: 'grow' }),
     h('button', { class: 'btn primary', onclick: () => cam.click() }, '📷 Fotografiar cajas'),
@@ -208,15 +212,15 @@ function viewInventory(m) {
   const card = h('div', { class: 'card' }, h('div', { class: 'row', style: 'margin-bottom:10px' }, h('h2', { style: 'margin:0' }, 'Inventario'), h('span', { class: 'grow' }), q, ft, fs,
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.xlsx`) }, '⬇ Excel'),
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.csv`) }, '⬇ CSV')),
-    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (etiqueta)', 'Cloud ID', 'MAC', 'Planta', 'Hab. / zona', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (etiqueta)', 'Cloud ID', 'MAC', 'Planta', 'Hab.', 'Zona', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
   m.append(card);
   function fillRows() {
     body.innerHTML = ''; const k = S.filter.q.toLowerCase();
     const rows = S.devices.filter(d => (!S.filter.type || d.dtype === S.filter.type) && (!S.filter.status || d.status === S.filter.status) &&
       (!k || [d.name, d.serial, d.cloud_id, d.mac, d.box_code, d.model].join(' ').toLowerCase().includes(k)));
-    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 11, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Sube la plantilla o fotografía las cajas.')));
+    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 12, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Sube la plantilla o fotografía las cajas.')));
     rows.slice(0, 600).forEach(d => body.append(devRow(d)));
-    if (rows.length > 600) body.append(h('tr', {}, h('td', { colspan: 11, class: 'hint' }, `Mostrando 600 de ${rows.length}. Usa el filtro.`)));
+    if (rows.length > 600) body.append(h('tr', {}, h('td', { colspan: 12, class: 'hint' }, `Mostrando 600 de ${rows.length}. Usa el filtro.`)));
   }
   fillRows();
 }
@@ -237,7 +241,7 @@ function devRow(d) {
         (S.status.device_types || []).map(t => h('option', { value: t, selected: t === d.dtype }, t)))),
       h('td', { style: 'width:100px' }, cellInput(d, 'box_code'), d.spare ? h('span', { class: 'badge b-added', style: 'margin-top:3px' }, 'SPARE') : null), h('td', { style: 'width:150px' }, cellInput(d, 'model')),
       h('td', { style: 'width:170px' }, cellInput(d, 'serial')), h('td', { style: 'width:170px' }, cellInput(d, 'cloud_id')), h('td', { style: 'width:175px' }, cellInput(d, 'mac')),
-      h('td', { style: 'width:70px' }, d.dtype === 'AP' ? cellInput(d, 'floor', '60px') : ''), h('td', { style: 'width:90px' }, d.dtype === 'AP' ? cellInput(d, 'room', '80px') : ''),
+      h('td', { style: 'width:70px' }, d.dtype === 'AP' ? cellInput(d, 'floor', '60px') : ''), h('td', { style: 'width:90px' }, d.dtype === 'AP' ? cellInput(d, 'room', '80px') : ''), h('td', { style: 'width:80px' }, d.dtype === 'AP' ? cellInput(d, 'zone', '64px') : ''),
       h('td', {}, nameCell(d), d.sw_code ? h('div', { class: 'hint' }, `→ ${d.sw_code} · puerto ${d.sw_port}`) : null), h('td', {}, h('span', { class: 'flag' }, d.issues || '')),
       h('td', {}, h('button', { class: 'btn sm danger', title: 'Eliminar', onclick: guard(async () => { if (!confirm('¿Eliminar este equipo?')) return; await api('DELETE', `/api/devices/${d.id}`); S.devices = S.devices.filter(x => x !== d); await refreshAll(); render(); }) }, '✕')));
   };
@@ -251,14 +255,15 @@ async function addManual() {
   const dlg = h('dialog', { class: 'dlg' });
   const sel = h('select', {}, models.map(m => h('option', { value: m.model }, `${m.model}  (${m.dtype})`)));
   const box = h('input', { placeholder: 'AP01', style: 'text-transform:uppercase' }), serial = h('input', { placeholder: 'Serial de la etiqueta', class: 'mono' }), mac = h('input', { placeholder: 'MAC', class: 'mono' });
+  const zoneIn = h('input', { placeholder: 'Zona (opcional, p. ej. CORR)', style: 'text-transform:uppercase' });
   const floor = h('select', {}, h('option', { value: '' }, '— planta —'), FLOORS.map(([v, l]) => h('option', { value: v }, l))), room = h('input', { placeholder: 'Habitación (opcional)' });
-  const apOnly = h('div', { class: 'dlgrow' }, h('label', {}, 'Planta ', floor), h('label', {}, 'Habitación ', room));
+  const apOnly = h('div', { class: 'dlgrow' }, h('label', {}, 'Planta ', floor), h('label', {}, 'Habitación ', room), h('label', {}, 'Zona ', zoneIn));
   const upd = () => { const m = models.find(x => x.model === sel.value); apOnly.style.display = m && m.dtype === 'AP' ? '' : 'none'; }; sel.onchange = upd; upd();
   const ok = h('button', { class: 'btn primary', onclick: guard(async () => {
     const m = models.find(x => x.model === sel.value);
     if (!box.value.trim()) { toast('Escribe el código de caja (AP01…)', true); return; }
     if (m.dtype === 'AP' && !floor.value) { toast('Elige la planta del AP', true); return; }
-    await api('POST', `/api/projects/${pid()}/devices`, { model: sel.value, dtype: m.dtype, box_code: box.value, serial: serial.value, mac: mac.value, floor: floor.value, room: room.value });
+    await api('POST', `/api/projects/${pid()}/devices`, { model: sel.value, dtype: m.dtype, box_code: box.value, serial: serial.value, mac: mac.value, floor: floor.value, room: room.value, zone: zoneIn.value });
     dlg.close(); dlg.remove(); await refreshAll(); render(); toast('Añadido'); }) }, 'Añadir');
   dlg.append(h('h2', {}, 'Añadir equipo a mano'),
     h('label', {}, 'Modelo (exacto del pedido)', sel), h('label', {}, 'Código de caja (rotulador)', box), apOnly,

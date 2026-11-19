@@ -292,6 +292,8 @@ def annotate(plan, project, device_name_fn):
         page = doc[m.page]
         d = by_id.get(m.device_id)
         text = d.box_code if d and d.box_code else "?"
+        if d and d.dtype == "AP" and re.fullmatch(r"AP\d+", text or ""):
+            text = f"AP{int(text[2:]):03d}"                       # en el plano los APs llevan 3 dígitos (AP004)
         if text == "?": unassigned += 1
         fs = max(6.5, min(30.0, m.size * 0.95))
         tw = fitz.get_text_length(text, fontname="hebo", fontsize=fs)

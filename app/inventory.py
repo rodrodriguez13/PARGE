@@ -206,6 +206,8 @@ def apply_scan_items(db, project, items, scan_id=None):
             res["duplicates"] += 1
             d.box_code = d.box_code or code
             continue
+        if d is None and code:                 # el técnico rotula cada caja (AP05): ese código manda sobre el orden de llegada
+            d = next((s for s in devices if s.status == "expected" and not s.serial and not s.mac and s.box_code == code), None)
         if d is None:                          # ¿hay un hueco de plantilla sin serial para este modelo?
             for slot in devices:
                 if slot.status == "expected" and not slot.serial and not slot.mac and models_equal(slot.exp_model, model):
@@ -217,6 +219,7 @@ def apply_scan_items(db, project, items, scan_id=None):
             if code and d.box_code and code != d.box_code:
                 _flag(d, f"en la caja pone {code}, el código asignado es {d.box_code}")
             d.box_code = d.box_code or code
+            meraki_fill(project, d)
             d.scan_id = scan_id
             d.source = "template" if d.source == "template" else "scan"
             bad = []
@@ -235,6 +238,7 @@ def apply_scan_items(db, project, items, scan_id=None):
             _flag(d, "no estaba en la plantilla")
         if serial and not serial_ok(serial): _flag(d, "formato de serial no reconocido, revisar")
         if it.get("mac") and not mac: _flag(d, "MAC con formato inválido, revisar")
+        meraki_fill(project, d)
         db.add(d); devices.append(d)
         res["added" if has_template else "received"] += 1
     db.commit()
@@ -325,3 +329,64 @@ def template_workbook():
     for col, w in zip("ABCDEFGH", (12, 8, 22, 22, 22, 34, 8, 60)):
         ws.column_dimensions[col].width = w
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+# ---------------------------------------------------------------- listados de Meraki (CSV del dashboard)
+def read_meraki_csv(data):
+    """CSV exportado del dashboard de Meraki (access_points.csv / switches.csv): MAC y serial (= Cloud ID) de cada equipo."""
+    import csv, io
+    txt = data.decode("utf-8-sig", errors="replace")
+    out = []
+    for row in csv.DictReader(io.StringIO(txt)):
+        low = {str(k).strip().lower(): (v or "").strip() for k, v in row.items() if k}
+        mac = norm_mac(low.get("mac address") or low.get("mac_address") or low.get("mac"))
+        ser = norm_serial(low.get("serial_number") or low.get("serial") or low.get("cloud id") or low.get("cloud_id"))
+        if ser and re.match(r"^Q[0-9A-Z]{3}-[0-9A-Z]{4}-[0-9A-Z]{4}$", ser):
+            out.append({"serial": ser, "mac": mac})
+    return out
+
+
+def meraki_apply(project, rows, kind):
+    """Guarda el listado en el proyecto, deduce el modelo de cada prefijo de serial por cantidades y rellena MAC/serial."""
+    cfg = dict(project.config); m = dict(cfg.get("meraki") or {})
+    m[kind] = {r["serial"]: r["mac"] for r in rows}
+    groups = {}
+    for r in rows: groups.setdefault(r["serial"][:4], []).append(r)
+    dt = "AP" if kind == "aps" else "SW"
+    counts = {}
+    for d in project.devices:
+        if d.dtype == dt and not d.spare or d.dtype == dt:
+            mod = d.exp_model or d.model
+            if mod: counts[mod] = counts.get(mod, 0) + 1
+    pm = dict(m.get("prefix_model") or {})
+    for pre, g in groups.items():
+        cand = [mod for mod, n in counts.items() if n == len(g)]
+        if len(cand) == 1 and len([1 for p2, g2 in groups.items() if len(g2) == len(g)]) == 1: pm[pre] = cand[0]
+    m["prefix_model"] = pm
+    cfg["meraki"] = m; project.config = cfg
+    return {"loaded": len(rows), "prefixes": {k: {"count": len(g), "model": pm.get(k, "")} for k, g in groups.items()}}
+
+
+def meraki_fill(project, d):
+    """Completa MAC/serial de un equipo con el listado de Meraki y avisa si el serial no es de este pedido o no cuadra el modelo."""
+    m = (project.config or {}).get("meraki") or {}
+    book = {**(m.get("aps") or {}), **(m.get("sws") or {})}
+    if not book: return
+    msgs = []
+    if d.serial and d.serial in book:
+        if not d.mac: d.mac = book[d.serial]
+        elif norm_mac(d.mac) != book[d.serial]: msgs.append("la MAC no corresponde a ese serial en Meraki")
+        exp = (m.get("prefix_model") or {}).get(d.serial[:4])
+        if exp and d.model and norm_model(exp) != norm_model(d.model) and not norm_model(d.model).startswith(norm_model(exp)[:7]):
+            msgs.append(f"el serial es de un {exp} y el modelo es {d.model}")
+        if exp and not d.model: d.model = exp
+    elif d.mac and not d.serial:
+        for s_, mac in book.items():
+            if mac == norm_mac(d.mac): d.serial = s_; break
+    elif d.serial:
+        msgs.append("serial no está en el listado de Meraki")
+    if msgs:
+        cur = [x for x in (d.issues or "").split(" · ") if x]
+        for t in msgs:
+            if t not in cur: cur.append(t)
+        d.issues = " · ".join(cur)

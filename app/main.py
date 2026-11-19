@@ -68,7 +68,7 @@ def dev_out(project, d, racks, by_id=None):
             "model_short": naming.short_model(d.model, project.config.get("model_aliases")),
             "serial": d.serial, "mac": d.mac, "ip": d.ip, "cloud_id": d.cloud_id, "comment": d.comment,
             "spare": bool(d.spare), "status": d.status, "source": d.source, "issues": d.issues, "exp_model": d.exp_model,
-            "template_name": d.template_name, "floor": d.floor, "room": d.room, "rack_id": d.rack_id,
+            "template_name": d.template_name, "floor": d.floor, "room": d.room, "zone": d.zone or "", "rack_id": d.rack_id,
             "rack_code": r.code if r else "", "rack_u": d.rack_u, "rack_h": d.rack_h,
             "name": name, "name_missing": missing, "name_override": d.name_override,
             "serial_ok": inv.serial_ok(d.serial) if d.serial else None,
@@ -87,10 +87,21 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
+APP_VERSION = "2026.11.19-d"
+
+
+@app.middleware("http")
+async def no_cache(request: Request, call_next):
+    resp = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"        # el navegador siempre comprueba si hay versión nueva
+    return resp
+
+
 @app.get("/api/config")
 def public_config(request: Request):
     ok = (not auth.enabled()) or request.cookies.get(auth.COOKIE) == auth.session_token()
-    return {"auth": auth.enabled(), "logged_in": ok, "team": auth.TEAM}
+    return {"auth": auth.enabled(), "logged_in": ok, "team": auth.TEAM, "version": APP_VERSION}
 
 
 @app.get("/api/health")
@@ -270,13 +281,30 @@ def add_device(pid: int, body: dict = Body(...), db: Session = Depends(get_db)):
         db.add(d)
     if body.get("floor") not in (None, ""): d.floor = str(body["floor"])
     if body.get("room"): d.room = str(body["room"])
+    if body.get("zone"): d.zone = str(body["zone"]).strip().upper()
+    inv.meraki_fill(p, d)
     db.commit()
     _autoplan(db, pid)
     return dev_out(p, d, {r.id: r for r in p.racks})
 
 
 EDITABLE = ("dtype", "box_code", "role", "seq", "model", "serial", "mac", "ip", "cloud_id", "comment", "floor", "room",
-            "rack_id", "rack_u", "rack_h", "name_override", "status", "spare", "installed", "install_note", "sw_id", "sw_port")
+            "rack_id", "rack_u", "rack_h", "name_override", "status", "spare", "installed", "install_note", "sw_id", "sw_port", "zone")
+
+
+@app.post("/api/projects/{pid}/meraki")
+async def import_meraki(pid: int, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
+    """CSV del dashboard de Meraki (access_points.csv y/o switches.csv): MAC y serial de cada equipo, para completar y validar."""
+    p = _project(db, pid); out = {}
+    for f in files:
+        rows = inv.read_meraki_csv(await f.read())
+        if not rows: continue
+        kind = "aps" if "access" in (f.filename or "").lower() or "ap" == (f.filename or "").lower()[:2] else "sws"
+        out[kind] = inv.meraki_apply(p, rows, kind)
+    if not out: raise HTTPException(400, "No encontré seriales Meraki (Qxxx-xxxx-xxxx) en los archivos")
+    for d in p.devices: inv.meraki_fill(p, d)
+    db.commit()
+    return out
 
 
 @app.get("/api/projects/{pid}/models")
@@ -301,6 +329,7 @@ def patch_device(did: int, request: Request, body: dict = Body(...), db: Session
             if not (v and d.installed): d.installed_by = unquote(request.headers.get("x-user-name") or "")[:40] if v else ""
         if k in ("sw_id", "sw_port"): v = int(v) if v not in ("", None) else None
         if k == "box_code": v = naming.norm_box_code(v)
+        if k == "zone": v = str(v or "").strip().upper()
         if k == "model": v = inv.canon_model(d.project, v)
         if k == "serial": v = inv.norm_serial(v)
         if k == "mac": v = inv.norm_mac(v) or str(v or "")
@@ -319,6 +348,9 @@ def patch_device(did: int, request: Request, body: dict = Body(...), db: Session
                 db.rollback(); raise HTTPException(400, msg)
         d.port_manual = bool(d.sw_id or d.sw_port)
         if not d.port_manual: d.sw_id = d.sw_port = None
+    if "serial" in body or "mac" in body:
+        d.issues = " · ".join(x for x in (d.issues or "").split(" · ") if x and not x.startswith(("serial no está", "la MAC no corresponde", "el serial es de un")))
+        inv.meraki_fill(d.project, d)
     db.commit()
     if any(k in body for k in ("model", "box_code", "dtype", "spare")): _autoplan(db, d.project_id)
     p = d.project

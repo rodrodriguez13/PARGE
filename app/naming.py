@@ -146,7 +146,7 @@ def device_context(project, dev, rack=None):
         "N": dev.seq if dev.seq else n,
         "CODE": (dev.box_code or "").upper(),
         "TYPE": dev.dtype,
-        "ZONE": zone_for(cfg, dev.model),
+        "ZONE": (getattr(dev, "zone", "") or "").strip().upper(),
     }
 
 
