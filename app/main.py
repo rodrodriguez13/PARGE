@@ -1,3 +1,4 @@
+import json
 import os, io, csv, copy, shutil, datetime as dt
 from urllib.parse import unquote
 from typing import Optional
@@ -618,6 +619,15 @@ def _plan_state(db, plan):
             "devices": [{"id": d.id, "box_code": d.box_code, "model": d.model} for d in p.devices if d.dtype == "AP" and d.box_code]}
 
 
+def _plan_cache(pdf_bytes):
+    import hashlib
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "seed", "plan_cache.json"), encoding="utf-8") as f:
+            return json.load(f).get(hashlib.sha256(pdf_bytes).hexdigest())
+    except Exception:
+        return None
+
+
 @app.post("/api/projects/{pid}/applan")
 async def upload_plan(pid: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     p = _project(db, pid)
@@ -627,13 +637,17 @@ async def upload_plan(pid: int, file: UploadFile = File(...), db: Session = Depe
     path = os.path.join(folder, f"applan_{int(dt.datetime.utcnow().timestamp())}.pdf")
     pdf_bytes = await file.read()
     with open(path, "wb") as f: f.write(pdf_bytes)
+    cached = _plan_cache(pdf_bytes)           # plano ya analizado de antemano: instantáneo y sin gastar memoria
     try:
-        mode, pages, markers = ap.detect(path)
+        if cached:
+            mode, pages, markers = cached["mode"], [None] * cached["pages"], cached["markers"]
+        else:
+            mode, pages, markers = ap.detect(path)
     except Exception as e:
         raise HTTPException(400, f"No pude leer el PDF: {e}")
     for old in db.query(ApPlan).filter_by(project_id=pid): storage.delete(f"plan:{old.id}", db); db.delete(old)
     db.flush()
-    floors = ap.guess_floors(path)          # una sola vez (antes se repetía por página)
+    floors = cached["floors"] if cached else ap.guess_floors(path)          # una sola vez
     plan = ApPlan(project_id=pid, filename=file.filename, path=path, pages=len(pages), mode=mode,
                   page_floors={str(i): floors.get(str(i), str(i + 1)) for i in range(len(pages))}, color_map={})
     db.add(plan); db.flush()

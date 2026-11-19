@@ -73,7 +73,22 @@ def _modal_size_filter(group):
 
 
 # --------------------------------------------------------------------- detección raster (PDF escaneado / imagen)
+def _free_cache():
+    """MuPDF guarda en caché hasta ~256 MB; en servidores pequeños (512 MB) hay que vaciarla."""
+    try:
+        fitz.TOOLS.store_shrink(100)
+    except Exception:
+        pass
+
+
 def _raster_candidates(page, dpi=150):
+    try:
+        return _raster_candidates_(page, dpi)
+    finally:
+        _free_cache()
+
+
+def _raster_candidates_(page, dpi=150):
     z = dpi / 72.0
     pix = page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
     img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 3)
@@ -84,10 +99,11 @@ def _raster_candidates(page, dpi=150):
     if len(px) < 20:
         return []
     ys, xs = np.nonzero(mask)
-    pxf = px.astype(np.float32)
+    pxf = px.astype(np.int16)
     del hsv
-    q = (px // 32).astype(np.int32)
+    q = (px // 32).astype(np.int16)
     keys, counts = np.unique(q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2], return_counts=True)
+    del q
     centers = []
     for k in keys[np.argsort(-counts)][:24]:
         rgb = np.array([(k // 64) * 32 + 16, ((k // 8) % 8) * 32 + 16, (k % 8) * 32 + 16], float)
@@ -97,7 +113,7 @@ def _raster_candidates(page, dpi=150):
             centers.append(rgb)
     out = []
     for c in centers:
-        sel = ((pxf - c.astype(np.float32)) ** 2).sum(1) < 3600      # solo píxeles de la máscara (antes: imagen completa)
+        sel = ((pxf.astype(np.int32) - c.astype(np.int32)) ** 2).sum(1) < 3600      # solo píxeles de la máscara (antes: imagen completa)
         m = np.zeros(mask.shape, np.uint8)
         m[ys[sel], xs[sel]] = 1
         m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
@@ -353,6 +369,7 @@ def guess_floors(pdf_path):
                 pix = pg.get_pixmap(dpi=100, alpha=False, clip=clip)
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 txt = pytesseract.image_to_string(img, config="--psm 11")
+                del pix, img; _free_cache()
             m = re.search(r"Plan\s*:?\s*R\s*([+\-])\s*(\d+)", txt, re.I)
             if m:
                 out[str(i)] = ("-" if m.group(1) == "-" else "") + str(int(m.group(2)))
