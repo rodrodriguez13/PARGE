@@ -149,6 +149,8 @@ tr:hover td{background:#fafcff}
 .dlg::backdrop{background:rgba(10,30,50,.45)}
 .dlg h2{margin:0 0 10px}.dlg label{display:block;font-size:12px;color:var(--mute);margin-top:8px}
 .dlg input,.dlg select{display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:8px;border:1px solid #c5d3e0;border-radius:6px;font-size:14px}
+.dlg input[type=checkbox]{display:inline-block;width:18px;height:18px;margin:0;padding:0}
+.dlg label.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);margin-top:14px;cursor:pointer}
 .dlgrow{display:flex;gap:10px}.dlgrow label{flex:1}.dlgrow .btn{margin:0}
 
 /* frontal estilo dashboard de Meraki */

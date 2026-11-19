@@ -626,7 +626,7 @@ async function instPorts(box) {
     const mport = (pt, top) => { const u = pt.device_id, ex = pt.extra; const lab = h('div', { class: 'mpn' }, pt.port);
       const jack = h('button', { class: 'mp' + (u ? (pt.installed ? ' inst' : ' ap') : ex ? (pt.connected ? ' inst' : ' ap') : ''),
         title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · conectado' : ' · pendiente'}` : ex ? `${pt.label}${pt.connected ? ' · conectado' : ' · pendiente'}` : `Puerto ${pt.port} libre: pulsa para añadir un dispositivo`,
-        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } else extraDlg(sw, pt, redraw); } },
+        onclick: () => { if (u) apPortDlg(sw, pt, redraw); else extraDlg(sw, pt, redraw); } },
         u ? h('b', {}, 'AP' + num(pt)) : ex ? h('b', {}, pt.label) : h('span', { class: 'jk' }), (u && pt.installed) || (ex && pt.connected) ? h('i', {}, '✓') : null);
       return h('div', { class: 'mpc' }, top ? lab : null, jack, top ? null : lab); };
     const cols = Math.ceil(sw.n_ports / 2), groups = [];
@@ -647,12 +647,26 @@ async function instPorts(box) {
   if (un.length) box.append(h('div', { class: 'card', style: 'background:var(--warn-bg)' }, h('b', {}, `${un.length} AP(s) sin puerto: `), un.map(d => d.box_code || d.model).join(', '), h('div', { class: 'hint' }, 'Normalmente es que faltan códigos de caja o el switch. Pulsa «Recalcular puertos» tras numerar.')));
 }
 
+function apPortDlg(sw, pt, after) {
+  const dlg = h('dialog', { class: 'dlg' }), close = () => { dlg.close(); dlg.remove(); };
+  const swSel = h('select', {}, S.portmap.switches.map(x => h('option', { value: x.id, selected: x.id === sw.id }, `${x.box_code} (${x.n_ports} puertos)`)));
+  const portIn = h('input', { type: 'number', min: 1, value: pt.port });
+  const patch = async body => { await api('PATCH', `/api/devices/${pt.device_id}`, body); close(); await refreshAll(); await loadPortmap(); after(); };
+  dlg.append(h('h2', {}, `${sw.box_code} · puerto ${pt.port}`), h('div', { class: 'hint' }, pt.name),
+    h('div', { class: 'dlgrow' }, h('label', {}, 'Mover al switch', swSel), h('label', {}, 'Puerto', portIn)),
+    h('div', { class: 'row', style: 'margin-top:14px;flex-wrap:wrap' },
+      h('button', { class: 'btn danger', onclick: guard(async () => { if (confirm(`¿Liberar el puerto ${pt.port} de ${sw.box_code}? El AP quedará sin puerto asignado.`)) await patch({ free_port: true }); }) }, 'Liberar puerto'),
+      h('button', { class: 'btn', onclick: () => { close(); S.instSel = pt.device_id; after(); } }, 'Ver AP'), h('span', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: close }, 'Cancelar'),
+      h('button', { class: 'btn primary', onclick: guard(async () => { const n = parseInt(portIn.value, 10); if (!n) { toast('Escribe el puerto', true); return; } await patch({ sw_id: +swSel.value, sw_port: n }); }) }, 'Guardar')));
+  document.body.append(dlg); dlg.showModal();
+}
 function extraDlg(sw, pt, after) {
   const dlg = h('dialog', { class: 'dlg' });
   const lab = h('input', { placeholder: 'Leyenda (p. ej. CAM1)', maxlength: 20, value: pt.label || '', style: 'text-transform:uppercase' });
   const chk = h('input', { type: 'checkbox', checked: !!pt.connected });
   const save = async del => { await api('PUT', `/api/projects/${pid()}/extra-ports`, { sw_id: sw.id, port: pt.port, label: lab.value, connected: chk.checked, delete: del }); dlg.close(); dlg.remove(); await loadPortmap(); after(); };
-  dlg.append(h('h2', {}, `${sw.box_code} · puerto ${pt.port}`), h('label', {}, 'Leyenda', lab), h('label', { class: 'row', style: 'gap:8px' }, chk, ' Dispositivo conectado'),
+  dlg.append(h('h2', {}, `${sw.box_code} · puerto ${pt.port}`), h('label', {}, 'Leyenda', lab), h('label', { class: 'chk' }, chk, 'Dispositivo conectado'),
     h('div', { class: 'row', style: 'margin-top:14px' }, pt.extra ? h('button', { class: 'btn danger', onclick: guard(() => save(true)) }, 'Quitar') : null, h('span', { class: 'grow' }),
       h('button', { class: 'btn', onclick: () => { dlg.close(); dlg.remove(); } }, 'Cancelar'),
       h('button', { class: 'btn primary', onclick: guard(async () => { if (!lab.value.trim()) { toast('Escribe la leyenda', true); return; } await save(false); }) }, 'Guardar')));

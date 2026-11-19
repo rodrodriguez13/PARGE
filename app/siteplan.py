@@ -86,7 +86,7 @@ def apply(db, p):
         taken = {d.sw_port for d in aps if d.sw_id == sw.id and d.port_manual and d.sw_port}
         port, count = 1, 0
         for d in feeds[feed]:
-            if d.port_manual and d.sw_id: continue
+            if d.port_manual: continue                      # fijado a mano (o liberado a propósito)
             while port in taken: port += 1
             if port > total:
                 d.sw_id = d.sw_port = None

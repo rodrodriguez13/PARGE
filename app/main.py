@@ -87,7 +87,7 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
-APP_VERSION = "2026.11.19-o"
+APP_VERSION = "2026.11.19-p"
 
 
 @app.middleware("http")
@@ -392,6 +392,10 @@ def patch_device(did: int, request: Request, body: dict = Body(...), db: Session
                 db.rollback(); raise HTTPException(400, msg)
         d.port_manual = bool(d.sw_id or d.sw_port)
         if not d.port_manual: d.sw_id = d.sw_port = None
+        if d.sw_id and d.sw_port:                          # el puerto ya no está libre: fuera la leyenda manual que hubiera
+            for x in db.query(ExtraPort).filter_by(sw_id=d.sw_id, port=d.sw_port): db.delete(x)
+    if body.get("free_port"):                              # liberar el puerto y que el recálculo no lo vuelva a asignar
+        d.sw_id = d.sw_port = None; d.port_manual = True
     if "serial" in body or "mac" in body:
         d.issues = " · ".join(x for x in (d.issues or "").split(" · ") if x and not x.startswith(("serial no está", "la MAC no corresponde", "el serial es de un")))
         inv.meraki_fill(d.project, d)
@@ -631,7 +635,7 @@ def _portmap(p):
                                "floor": ports[i].floor} if i in ports else
                               ({"port": i, "extra": True, "label": extras[i].label, "connected": bool(extras[i].connected)} if i in extras else {"port": i})
                               for i in range(1, n + 1)]})
-    unassigned = [d.id for d in p.devices if d.dtype == "AP" and not d.spare and not d.sw_id]
+    unassigned = [d.id for d in p.devices if d.dtype == "AP" and not d.spare and not d.sw_id and not d.port_manual]
     return {"switches": out, "unassigned": unassigned}
 
 
