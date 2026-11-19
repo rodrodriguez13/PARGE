@@ -169,38 +169,42 @@ function insertToken(t) {
 
 /* ---------------------------------------------------------------- 1 · INVENTARIO */
 function viewInventory(m) {
-  m.append(...header('1 · Control de inventario', 'Carga los listados de Meraki (APs y switches), fotografía las cajas al recibirlas y el sistema valida lo que llega.'));
+  m.append(...header('1 · Control de inventario', 'Carga los listados de Meraki, valida el material, fotografía las cajas y revisa la lista de equipos con sus nombres.'));
+  S.itab = S.itab || 'val';
+  m.append(h('div', { class: 'tabs' }, [['val', 'A · Validación de inventario'], ['photo', 'B · Fotografía de cajas'], ['list', 'C · Lista de equipos']].map(([k, t]) =>
+    h('button', { class: S.itab === k ? 'on' : '', onclick: () => { S.itab = k; render(); } }, t))));
   const sm = S.summary, bs = sm.by_status, tot = S.devices.length;
-  m.append(h('div', { class: 'stats' },
-    stat(tot, 'Equipos en total'), stat(bs.expected || 0, 'Esperados (aún no llegan)'), stat((bs.received || 0) + (bs.confirmed || 0), 'Recibidos'),
-    stat(bs.confirmed || 0, 'Confirmados vs plantilla'), stat(bs.mismatch || 0, 'No coinciden'), stat(bs.added || 0, 'Fuera de plantilla')));
-
-  const up = h('input', { type: 'file', accept: '.xlsx,.xlsm,.csv', style: 'display:none', onchange: guard(async e => {
-    const fd = new FormData(); fd.append('file', e.target.files[0]); const r = await api('POST', `/api/projects/${pid()}/inventory/import`, fd);
-    S.lastImport = r.skipped || []; toast(`Leídos ${r.added} equipos activos nuevos, ${r.matched} validados contra lo ya recibido`); e.target.value = ''; await refreshAll(); render();
-  }) });
-  const mer = h('input', { type: 'file', accept: '.csv', multiple: true, style: 'display:none', onchange: guard(async e => {
-    const fd = new FormData(); [...e.target.files].forEach(f => fd.append('files', f)); const r = await api('POST', `/api/projects/${pid()}/meraki`, fd);
-    toast('Meraki: ' + Object.entries(r).map(([k, v]) => `${v.loaded} ${k === 'aps' ? 'APs' : 'switches'}`).join(' · ')); e.target.value = ''; await refreshAll(); render(); }) });
-  const cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
-  const pick = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
-  m.append(h('div', { class: 'card tint' }, h('div', { class: 'row' },
-    h('button', { class: 'btn primary', title: 'access_points.csv y switches.csv del dashboard de Meraki (elige los dos a la vez)', onclick: () => mer.click() }, '⬆ Cargar listados de Meraki (CSV)'),
-    h('span', { class: 'grow' }),
-    h('button', { class: 'btn primary', onclick: () => cam.click() }, '📷 Fotografiar cajas'),
-    h('button', { class: 'btn', onclick: () => pick.click() }, 'Elegir fotos'),
-    h('button', { class: 'btn', onclick: () => addManual() }, '+ Añadir manual'),
-    up, cam, pick),
-    h('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Consejo para las fotos: 4–6 cajas por foto, con la pegatina de frente y sin reflejos; el código a rotulador (AP01, SW01…) visible junto a la pegatina.')));
-  m.append(h('div', { id: 'scanzone' }));
-  const matBox = h('div', {}); m.append(matBox); viewMaterial(matBox);
-
-  const numBox = h('div'); m.append(numBox); if (tot) renderNumbering(numBox);
-  if (sm.models.length) m.append(h('div', { class: 'card' }, h('h2', {}, 'Resumen por modelo'),
-    h('table', {}, h('thead', {}, h('tr', {}, ['Tipo', 'Modelo', 'Total', 'Recibidos', 'Con código de caja'].map(x => h('th', {}, x)))),
-      h('tbody', {}, sm.models.map(r => h('tr', {}, h('td', {}, r.dtype), h('td', { class: 'mono' }, r.model), h('td', {}, r.total),
-        h('td', { class: r.received === r.total ? 'ok-t' : r.received ? 'warn-t' : '' }, `${r.received}/${r.total}`), h('td', {}, r.with_box)))))));
-
+  const box = h('div'); m.append(box);
+  if (S.itab === 'val') {
+    const mer = h('input', { type: 'file', accept: '.csv', multiple: true, style: 'display:none', onchange: guard(async e => {
+      const fd = new FormData(); [...e.target.files].forEach(f => fd.append('files', f)); const r = await api('POST', `/api/projects/${pid()}/meraki`, fd);
+      toast('Meraki: ' + Object.entries(r).map(([k, v]) => `${v.loaded} ${k === 'aps' ? 'APs' : 'switches'}`).join(' · ')); e.target.value = ''; await refreshAll(); render(); }) });
+    box.append(h('div', { class: 'stats' },
+      stat(tot, 'Equipos en total'), stat(bs.expected || 0, 'Esperados (aún no llegan)'), stat((bs.received || 0) + (bs.confirmed || 0), 'Recibidos'),
+      stat(bs.confirmed || 0, 'Confirmados vs listado'), stat(bs.mismatch || 0, 'No coinciden'), stat(bs.added || 0, 'Fuera de listado')));
+    box.append(h('div', { class: 'card tint' }, h('div', { class: 'row' },
+      h('button', { class: 'btn primary', title: 'access_points.csv y switches.csv del dashboard de Meraki (elige los dos a la vez)', onclick: () => mer.click() }, '⬆ Cargar listados de Meraki (CSV)'), mer,
+      h('span', { class: 'hint' }, 'De ahí salen el serial (= Cloud ID) y la MAC de cada equipo, para validarlos al fotografiar las cajas.'))));
+    const matBox = h('div', {}); box.append(matBox); viewMaterial(matBox);
+    return;
+  }
+  if (S.itab === 'photo') {
+    const cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
+    const pick = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
+    box.append(h('div', { class: 'card tint' }, h('div', { class: 'row' },
+      h('button', { class: 'btn primary', onclick: () => cam.click() }, '📷 Fotografiar cajas'),
+      h('button', { class: 'btn', onclick: () => pick.click() }, 'Elegir fotos'),
+      h('button', { class: 'btn', onclick: () => addManual() }, '+ Añadir manual'),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn', title: 'Hoja con los códigos AP01…AP52 para rotular las cajas', onclick: () => download(`/api/projects/${pid()}/numbering.xlsx`) }, '⬇ Hoja de etiquetas (Excel)'), cam, pick),
+      h('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Consejo: 4–6 cajas por foto, con la pegatina de frente y sin reflejos; el código a rotulador (AP01, SW01…) visible junto a la pegatina. El técnico mantiene la numeración por modelo: AP01–AP02 (74I), AP03–AP18 (72I), AP19–AP52 (72H).')));
+    box.append(h('div', { id: 'scanzone' }));
+    if (sm.models.length) box.append(h('div', { class: 'card' }, h('h2', {}, 'Resumen por modelo'),
+      h('table', {}, h('thead', {}, h('tr', {}, ['Tipo', 'Modelo', 'Total', 'Recibidos', 'Con código de caja'].map(x => h('th', {}, x)))),
+        h('tbody', {}, sm.models.map(r => h('tr', {}, h('td', {}, r.dtype), h('td', { class: 'mono' }, r.model), h('td', {}, r.total),
+          h('td', { class: r.received === r.total ? 'ok-t' : r.received ? 'warn-t' : '' }, `${r.received}/${r.total}`), h('td', {}, r.with_box)))))));
+    return;
+  }
   const q = h('input', { placeholder: 'Buscar nombre, serial, MAC, caja…', value: S.filter.q, oninput: e => { S.filter.q = e.target.value; fillRows(); } });
   const ft = h('select', { onchange: e => { S.filter.type = e.target.value; fillRows(); } }, h('option', { value: '' }, 'Todos los tipos'), (S.status.device_types || []).map(t => h('option', { value: t, selected: S.filter.type === t }, t)));
   const fs = h('select', { onchange: e => { S.filter.status = e.target.value; fillRows(); } }, h('option', { value: '' }, 'Todos los estados'), Object.entries(STATUS).map(([k, v]) => h('option', { value: k, selected: S.filter.status === k }, v)));
@@ -208,8 +212,8 @@ function viewInventory(m) {
   const card = h('div', { class: 'card' }, h('div', { class: 'row', style: 'margin-bottom:10px' }, h('h2', { style: 'margin:0' }, 'Inventario'), h('span', { class: 'grow' }), q, ft, fs,
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.xlsx`) }, '⬇ Excel'),
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.csv`) }, '⬇ CSV')),
-    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (etiqueta)', 'Cloud ID', 'MAC', 'Planta', 'Hab.', 'Zona', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
-  m.append(card);
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (= Cloud ID)', 'MAC', 'Planta', 'Hab.', 'Zona', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
+  box.append(card);
   function fillRows() {
     body.innerHTML = ''; const k = S.filter.q.toLowerCase();
     const rows = S.devices.filter(d => (!S.filter.type || d.dtype === S.filter.type) && (!S.filter.status || d.status === S.filter.status) &&
@@ -228,6 +232,11 @@ function cellInput(d, field, w) {
       if (row && row._draw) row._draw();
     }) });
 }
+const FLOOR_OPTS = [['', '—'], ['-1', 'LL'], ['0', 'GF'], ...[1, 2, 3, 4, 5, 6, 7].map(n => [String(n), String(n)])];
+function floorSel(d) {
+  return h('select', { onchange: guard(async e => { Object.assign(d, await api('PATCH', `/api/devices/${d.id}`, { floor: e.target.value })); const row = e.target.closest('tr'); if (row && row._draw) row._draw(); }) },
+    FLOOR_OPTS.map(([v, l]) => h('option', { value: v, selected: String(d.floor ?? '') === v }, l)));
+}
 function devRow(d) {
   const row = h('tr'); 
   const draw = () => {
@@ -235,9 +244,9 @@ function devRow(d) {
     row.append(h('td', {}, badge(d.status)),
       h('td', {}, h('select', { onchange: guard(async e => { Object.assign(d, await api('PATCH', `/api/devices/${d.id}`, { dtype: e.target.value })); draw(); }) },
         (S.status.device_types || []).map(t => h('option', { value: t, selected: t === d.dtype }, t)))),
-      h('td', { style: 'width:100px' }, cellInput(d, 'box_code'), d.spare ? h('span', { class: 'badge b-added', style: 'margin-top:3px' }, 'SPARE') : null), h('td', { style: 'width:150px' }, cellInput(d, 'model')),
-      h('td', { style: 'width:170px' }, cellInput(d, 'serial')), h('td', { style: 'width:170px' }, cellInput(d, 'cloud_id')), h('td', { style: 'width:175px' }, cellInput(d, 'mac')),
-      h('td', { style: 'width:70px' }, d.dtype === 'AP' ? cellInput(d, 'floor', '60px') : ''), h('td', { style: 'width:90px' }, d.dtype === 'AP' ? cellInput(d, 'room', '80px') : ''), h('td', { style: 'width:80px' }, d.dtype === 'AP' ? cellInput(d, 'zone', '64px') : ''),
+      h('td', { style: 'width:100px' }, cellInput(d, 'box_code'), d.spare ? h('span', { class: 'badge b-added', style: 'margin-top:3px' }, 'SPARE') : null), h('td', { style: 'min-width:150px' }, cellInput(d, 'model', '150px')),
+      h('td', { style: 'width:190px' }, cellInput(d, 'serial')), h('td', { style: 'min-width:150px' }, cellInput(d, 'mac', '150px')),
+      h('td', { style: 'width:80px' }, d.dtype === 'AP' ? floorSel(d) : ''), h('td', { style: 'width:90px' }, d.dtype === 'AP' ? cellInput(d, 'room', '80px') : ''), h('td', { style: 'width:80px' }, d.dtype === 'AP' ? cellInput(d, 'zone', '64px') : ''),
       h('td', {}, nameCell(d), d.sw_code ? h('div', { class: 'hint' }, `→ ${d.sw_code} · puerto ${d.sw_port}`) : null), h('td', {}, h('span', { class: 'flag' }, d.issues || '')),
       h('td', {}, h('button', { class: 'btn sm danger', title: 'Eliminar', onclick: guard(async () => { if (!confirm('¿Eliminar este equipo?')) return; await api('DELETE', `/api/devices/${d.id}`); S.devices = S.devices.filter(x => x !== d); await refreshAll(); render(); }) }, '✕')));
   };

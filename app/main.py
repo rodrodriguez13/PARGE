@@ -87,7 +87,7 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
-APP_VERSION = "2026.11.19-i"
+APP_VERSION = "2026.11.19-j"
 
 
 @app.middleware("http")
@@ -778,10 +778,15 @@ async def upload_plan(pid: int, file: UploadFile = File(...), db: Session = Depe
         if not m.ignored: counts[m.color] = counts.get(m.color, 0) + 1
     models = _ap_models(p)
     cmap = {}
-    for color, n in counts.items():
+    for color in counts:                     # leyenda fija del plano: el color decide el modelo
+        hint = ap.color_model_hint(color)
+        mod = next((x["model"] for x in models if hint and inv.norm_model(x["model"]).startswith(inv.norm_model(hint))), None)
+        if mod: cmap[color] = mod
+    if not cmap:                             # plano con otros colores: proponer por cantidades
+      for color, n in counts.items():
         cand = [m["model"] for m in models if m["devices"] == n and m["model"] not in cmap.values()]
         if len(cand) == 1: cmap[color] = cand[0]
-    if len(cmap) < len(counts):          # sin coincidencias exactas: proponer por orden de cantidad si es razonable
+    if not cmap and len(cmap) < len(counts):          # sin coincidencias exactas: proponer por orden de cantidad si es razonable
         cs = sorted(counts.items(), key=lambda kv: -kv[1])
         ms = sorted(models, key=lambda x: -x["devices"])
         pairs = list(zip(cs, ms))

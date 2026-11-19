@@ -385,3 +385,18 @@ def guess_floors(pdf_path):
     except Exception:
         pass
     return out
+
+
+PARGE_LEGEND = {"#f0d010": "CW9174I", "#10b050": "CW9172I", "#106d8a": "CW9172H"}   # amarillo / verde (pasillo) / azul (habitación)
+
+
+def color_model_hint(hexcol):
+    """Leyenda del plano de PARGE: cada color es un modelo. Solo vale si el color es (casi) el de la leyenda; el rojo es ruido."""
+    try:
+        c = [int(hexcol[i:i + 2], 16) for i in (1, 3, 5)]
+    except Exception:
+        return None
+    for ref, model in PARGE_LEGEND.items():
+        r = [int(ref[i:i + 2], 16) for i in (1, 3, 5)]
+        if sum((a - b) ** 2 for a, b in zip(c, r)) ** 0.5 < 45: return model
+    return None

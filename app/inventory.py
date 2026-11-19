@@ -374,6 +374,7 @@ def meraki_fill(project, d):
     if not book: return
     msgs = []
     if d.serial and d.serial in book:
+        d.cloud_id = d.serial                      # en Meraki el serial es el Cloud ID
         if not d.mac: d.mac = book[d.serial]
         elif norm_mac(d.mac) != book[d.serial]: msgs.append("la MAC no corresponde a ese serial en Meraki")
         exp = (m.get("prefix_model") or {}).get(d.serial[:4])
