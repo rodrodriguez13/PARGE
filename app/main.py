@@ -633,8 +633,9 @@ async def upload_plan(pid: int, file: UploadFile = File(...), db: Session = Depe
         raise HTTPException(400, f"No pude leer el PDF: {e}")
     for old in db.query(ApPlan).filter_by(project_id=pid): storage.delete(f"plan:{old.id}", db); db.delete(old)
     db.flush()
+    floors = ap.guess_floors(path)          # una sola vez (antes se repetía por página)
     plan = ApPlan(project_id=pid, filename=file.filename, path=path, pages=len(pages), mode=mode,
-                  page_floors={str(i): ap.guess_floors(path).get(str(i), str(i + 1)) for i in range(len(pages))}, color_map={})
+                  page_floors={str(i): floors.get(str(i), str(i + 1)) for i in range(len(pages))}, color_map={})
     db.add(plan); db.flush()
     storage.put(f"plan:{plan.id}", pdf_bytes, "application/pdf", db)
     for m in markers:

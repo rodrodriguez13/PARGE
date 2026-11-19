@@ -83,6 +83,9 @@ def _raster_candidates(page, dpi=150):
     px = img[mask]
     if len(px) < 20:
         return []
+    ys, xs = np.nonzero(mask)
+    pxf = px.astype(np.float32)
+    del hsv
     q = (px // 32).astype(np.int32)
     keys, counts = np.unique(q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2], return_counts=True)
     centers = []
@@ -94,7 +97,9 @@ def _raster_candidates(page, dpi=150):
             centers.append(rgb)
     out = []
     for c in centers:
-        m = ((np.linalg.norm(img.astype(np.float32) - c, axis=2) < 60) & mask).astype(np.uint8)
+        sel = ((pxf - c.astype(np.float32)) ** 2).sum(1) < 3600      # solo píxeles de la máscara (antes: imagen completa)
+        m = np.zeros(mask.shape, np.uint8)
+        m[ys[sel], xs[sel]] = 1
         m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         n, _, stats, cent = cv2.connectedComponentsWithStats(m)
         for i in range(1, n):
