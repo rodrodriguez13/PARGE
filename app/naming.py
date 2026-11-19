@@ -150,12 +150,24 @@ def device_context(project, dev, rack=None):
     }
 
 
+AP_ROOM_TPL = "HLT-{INN}-{MODEL}-{FLOOR}-{ROOM}-{ROLE}{N:03}"   # AP de habitación (9172H): planta + habitación
+AP_AREA_TPL = "HLT-{INN}-{MODEL}-{FLOOR}-{ZONE}-{ROLE}{N:03}"   # AP de áreas comunes (9174I, 9172I): planta + zona, sin habitación
+
+
+def is_room_ap(model):
+    return "9172H" in re.sub(r"[^A-Z0-9]", "", str(model or "").upper())
+
+
 def device_name(project, dev, rack=None):
     if dev.name_override:
         return dev.name_override, []
     ctx = device_context(project, dev, rack)
     tpls = project.config["templates"]
-    tpl = (tpls.get(dev.dtype + "_ZONE") if ctx["ZONE"] else None) or tpls.get(dev.dtype) or tpls["OTHER"]
+    if dev.dtype == "AP":
+        tpl = AP_ROOM_TPL if is_room_ap(dev.model) else AP_AREA_TPL
+        tpl = tpl.replace("HLT", (tpls.get("AP") or "HLT").split("-")[0])
+    else:
+        tpl = tpls.get(dev.dtype) or tpls["OTHER"]
     return render_name(tpl, ctx)
 
 

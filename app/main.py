@@ -87,7 +87,7 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
-APP_VERSION = "2026.11.19-j"
+APP_VERSION = "2026.11.19-n"
 
 
 @app.middleware("http")
