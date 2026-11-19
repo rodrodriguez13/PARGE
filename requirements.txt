@@ -10,3 +10,4 @@ pillow
 pytesseract      # OCR local de respaldo (requiere el binario tesseract-ocr instalado)
 anthropic        # lectura de etiquetas con visión (ANTHROPIC_API_KEY)
 psycopg2-binary   # conexión a Postgres (Supabase)
+zxing-cpp        # lectura de códigos de barras de las etiquetas

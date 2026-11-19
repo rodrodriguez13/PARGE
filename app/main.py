@@ -40,7 +40,8 @@ def startup():
     db.commit()
     for pr in db.query(Project):                 # proyectos creados antes de existir floor_labels
         cfg = dict(pr.config); changed = False
-        if "floor_labels" not in cfg: cfg["floor_labels"] = {"-1": "LL"}; changed = True
+        if "floor_labels" not in cfg: cfg["floor_labels"] = {"-1": "LL", "0": "GF"}; changed = True
+        if "0" not in cfg["floor_labels"]: cfg["floor_labels"] = {**cfg["floor_labels"], "0": "GF"}; changed = True
         if "model_zones" not in cfg: cfg["model_zones"] = {}; changed = True
         if "AP_ZONE" not in cfg["templates"]:
             cfg["templates"] = {**cfg["templates"], "AP_ZONE": naming.HILTON["templates"]["AP_ZONE"]}; changed = True
@@ -238,19 +239,54 @@ def summary(pid: int, db: Session = Depends(get_db)):
             "has_template": any(d.source == "template" for d in p.devices)}
 
 
+def _autoplan(db, pid):
+    """Reparte solo los números de caja entre las posiciones del AP Plan y rellena planta/habitación de cada AP.
+    Se llama tras cualquier cambio de inventario o de plano, para que el técnico no tenga que pulsar nada."""
+    try:
+        plan = db.query(ApPlan).filter_by(project_id=pid).first()
+        if plan and plan.color_map:
+            _restore_plan(plan, db)
+            ap.auto_assign(db, plan, db.get(Project, pid), inv.norm_model)
+    except Exception:
+        db.rollback()
+
+
 @app.post("/api/projects/{pid}/devices")
 def add_device(pid: int, body: dict = Body(...), db: Session = Depends(get_db)):
     p = _project(db, pid)
-    model, code = body.get("model", "").strip(), naming.norm_box_code(body.get("box_code", ""))
-    d = Device(project_id=pid, model=model, box_code=code, serial=inv.norm_serial(body.get("serial")),
-               mac=inv.norm_mac(body.get("mac")), dtype=body.get("dtype") or naming.guess_type(model, code, p.config["box_prefixes"]),
-               source="manual", status="received")
-    db.add(d); db.commit()
+    model, code = inv.canon_model(p, body.get("model", "").strip()), naming.norm_box_code(body.get("box_code", ""))
+    dtype = body.get("dtype") or naming.guess_type(model, code, p.config["box_prefixes"])
+    d = next((x for x in p.devices if code and x.box_code == code and x.status == "expected" and not x.serial and not x.mac), None)
+    if d is None:                       # ¿hay un hueco esperado de ese modelo sin recibir? Se rellena en vez de duplicar
+        d = next((x for x in sorted(p.devices, key=lambda x: x.id) if x.status == "expected" and not x.serial and not x.mac
+                  and inv.norm_model(x.exp_model or x.model) == inv.norm_model(model) and (not code or not x.box_code)), None)
+    if d is not None:
+        d.serial = inv.norm_serial(body.get("serial")) or d.serial; d.mac = inv.norm_mac(body.get("mac")) or d.mac
+        if code and not d.box_code: d.box_code = code
+        d.status = "received"; d.source = d.source or "manual"
+    else:
+        d = Device(project_id=pid, model=model, box_code=code, serial=inv.norm_serial(body.get("serial")),
+                   mac=inv.norm_mac(body.get("mac")), dtype=dtype, source="manual", status="received")
+        db.add(d)
+    if body.get("floor") not in (None, ""): d.floor = str(body["floor"])
+    if body.get("room"): d.room = str(body["room"])
+    db.commit()
+    _autoplan(db, pid)
     return dev_out(p, d, {r.id: r for r in p.racks})
 
 
 EDITABLE = ("dtype", "box_code", "role", "seq", "model", "serial", "mac", "ip", "cloud_id", "comment", "floor", "room",
             "rack_id", "rack_u", "rack_h", "name_override", "status", "spare", "installed", "install_note", "sw_id", "sw_port")
+
+
+@app.get("/api/projects/{pid}/models")
+def site_models(pid: int, db: Session = Depends(get_db)):
+    """Modelos exactos de este sitio (los del pedido) para elegirlos al añadir un equipo a mano."""
+    p = _project(db, pid); out = {}
+    for d in p.devices:
+        m = d.exp_model or d.model
+        if m and m not in out: out[m] = {"model": m, "dtype": d.dtype}
+    return sorted(out.values(), key=lambda x: (["AP", "SW", "MX"].index(x["dtype"]) if x["dtype"] in ("AP", "SW", "MX") else 9, x["model"]))
 
 
 @app.patch("/api/devices/{did}")
@@ -265,6 +301,7 @@ def patch_device(did: int, request: Request, body: dict = Body(...), db: Session
             if not (v and d.installed): d.installed_by = unquote(request.headers.get("x-user-name") or "")[:40] if v else ""
         if k in ("sw_id", "sw_port"): v = int(v) if v not in ("", None) else None
         if k == "box_code": v = naming.norm_box_code(v)
+        if k == "model": v = inv.canon_model(d.project, v)
         if k == "serial": v = inv.norm_serial(v)
         if k == "mac": v = inv.norm_mac(v) or str(v or "")
         if k in ("seq", "rack_id", "rack_u") and v in ("", None): v = None
@@ -283,6 +320,7 @@ def patch_device(did: int, request: Request, body: dict = Body(...), db: Session
         d.port_manual = bool(d.sw_id or d.sw_port)
         if not d.port_manual: d.sw_id = d.sw_port = None
     db.commit()
+    if any(k in body for k in ("model", "box_code", "dtype", "spare")): _autoplan(db, d.project_id)
     p = d.project
     return dev_out(p, d, {r.id: r for r in p.racks})
 
@@ -292,7 +330,8 @@ def delete_device(did: int, db: Session = Depends(get_db)):
     d = db.get(Device, did)
     if d:
         for m in db.query(ApMarker).filter_by(device_id=did): m.device_id = None
-        db.delete(d); db.commit()
+        pid_ = d.project_id
+        db.delete(d); db.commit(); _autoplan(db, pid_)
     return {"ok": True}
 
 
@@ -308,6 +347,7 @@ async def import_inventory(pid: int, file: UploadFile = File(...), db: Session =
         raise HTTPException(400, "No encontré equipos activos (AP, switch, firewall) en el archivo. Necesito columnas como Part Number/Model y Serial/MAC/Qty.")
     res = inv.import_into_project(db, p, recs)
     siteplan.apply(db, p)
+    _autoplan(db, pid)
     return {**res, "sheets": report, "total": len(recs), "skipped": skipped}
 
 
@@ -355,6 +395,7 @@ def apply_numbering(pid: int, body: dict = Body(...), db: Session = Depends(get_
     p.config = cfg
     db.commit()
     siteplan.apply(db, p)
+    _autoplan(db, pid)
     return {"ok": True, "assigned": len(ds)}
 
 
@@ -673,6 +714,8 @@ async def upload_plan(pid: int, file: UploadFile = File(...), db: Session = Depe
             cmap = {c: mo["model"] for (c, n), mo in pairs}
     plan.color_map = cmap
     db.commit()
+    _autoplan(db, pid)
+    db.refresh(plan)
     return _plan_state(db, plan)
 
 
@@ -688,6 +731,7 @@ def update_plan(plan_id: int, body: dict = Body(...), db: Session = Depends(get_
     if "page_floors" in body: plan.page_floors = body["page_floors"]
     if "color_map" in body: plan.color_map = {k: v for k, v in body["color_map"].items() if v}
     db.commit()
+    if "color_map" in body: _autoplan(db, plan.project_id); db.refresh(plan)
     return _plan_state(db, plan)
 
 

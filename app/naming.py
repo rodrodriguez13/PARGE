@@ -35,7 +35,7 @@ HILTON = {
     "role_codes": {"AP": "AP", "SW": "AS", "MX": "MX", "WLC": "WLC", "SRV": "SRV", "TV": "TV", "OTHER": "DV"},
     "model_aliases": {},
     "model_zones": {},                      # modelo -> zona (p. ej. CW9172I -> CORR): usa la plantilla AP_ZONE
-    "floor_labels": {"-1": "LL"},          # cómo se escribe cada planta en el nombre (-1 -> LL)
+    "floor_labels": {"-1": "LL", "0": "GF"},          # cómo se escribe cada planta en el nombre (-1 -> LL)
     "default_rack_units": 42,
 }
 
@@ -119,6 +119,19 @@ def render_name(template, ctx):
     return _TOKEN.sub(sub, template), missing
 
 
+def zone_for(cfg, model):
+    """Zona del modelo (CORR...). Tolera que el modelo venga corto (CW9174I) o completo (CW9174I-CFG-HILU)."""
+    zones = cfg.get("model_zones") or {}
+    if model in zones: return zones[model]
+    sm = re.sub(r"[^A-Z0-9]", "", str(model or "").upper())
+    if sm:
+        for k, v in zones.items():
+            kn = re.sub(r"[^A-Z0-9]", "", k.upper())
+            if v and (kn.startswith(sm) or sm.startswith(kn)): return v
+        if re.search(r"9172I|9174I", sm): return "CORR"
+    return ""
+
+
 def device_context(project, dev, rack=None):
     cfg = project.config
     pre, n = parse_box_code(dev.box_code)
@@ -133,7 +146,7 @@ def device_context(project, dev, rack=None):
         "N": dev.seq if dev.seq else n,
         "CODE": (dev.box_code or "").upper(),
         "TYPE": dev.dtype,
-        "ZONE": (cfg.get("model_zones") or {}).get(dev.model, ""),
+        "ZONE": zone_for(cfg, dev.model),
     }
 
 

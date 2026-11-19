@@ -112,7 +112,7 @@ async function newProject() {
   const p = await api('POST', '/api/projects', { name, inn_code: inn, chain });
   await loadProjects(p.id); toast('Sitio creado');
 }
-const NAV = [['settings', 'Sitio y nombres', 'Datos del hotel · plantillas de nombre'], ['inventory', '1 · Inventario', 'Plantilla · fotos de cajas'],
+const NAV = [['settings', 'Sitio', 'Datos del hotel · logo'], ['inventory', '1 · Inventario', 'Plantilla · fotos de cajas'],
              ['location', '2 · Ubicación', 'Racks · AP Plan'], ['install', '3 · Instalación', 'APs instalados · fotos · puertos de switch']];
 function renderNav() {
   const nav = $('#nav'); nav.innerHTML = '';
@@ -128,78 +128,30 @@ const header = (t, s) => [h('h1', {}, t), h('p', { class: 'sub' }, s)];
 const TOKENS = [['{INN}', 'Inn code'], ['{MODEL}', 'modelo corto'], ['{FLOOR}', 'planta'], ['{ROOM}', 'habitación'], ['{LOC}', 'rack (MDF/IDF)'],
                 ['{ROLE}', 'rol: AP/AS/CS/MX'], ['{N:02}', 'número (2 dígitos)'], ['{N:03}', 'número (3 dígitos)'], ['{CODE}', 'código de caja'], ['{ZONE}', 'zona (CORR…) · solo AP+zona']];
 function viewSettings(m) {
-  const p = S.project, cfg = JSON.parse(JSON.stringify(p.config));
-  m.append(...header('Sitio y nombres de dispositivos', 'Aquí defines una vez cómo se llaman los equipos de esta cadena. Todo lo demás se calcula solo.'));
+  const p = S.project;
+  m.append(...header('Sitio', 'Datos de PARGE. Los nombres de los equipos ya están fijados con el estándar Hilton y se calculan solos.'));
   const f = { name: h('input', { value: p.name, style: 'width:100%' }), inn: h('input', { value: p.inn_code, style: 'width:140px;text-transform:uppercase' }),
-              brand: h('input', { value: p.brand || '', style: 'width:100%' }),
-              chain: h('select', {}, S.profiles.map(x => h('option', { value: x.name, selected: x.name === p.chain }, x.name))) };
+              brand: h('input', { value: p.brand || '', style: 'width:100%' }) };
   const logoIn = h('input', { type: 'file', accept: 'image/*', style: 'display:none', onchange: guard(async e => {
     const fd = new FormData(); fd.append('file', e.target.files[0]); const np = await api('POST', `/api/projects/${pid()}/logo`, fd);
     S.projects = S.projects.map(x => x.id === np.id ? np : x); S.project = np; drawLogo(); toast('Logo guardado'); render(); }) });
-  m.append(h('div', { class: 'card' }, h('div', { class: 'row' }, p.has_logo ? h('img', { src: `/api/projects/${p.id}/logo?v=${p.logo_v || ''}`, style: 'height:56px;max-width:200px;object-fit:contain' }) : h('div', { class: 'hint' }, 'Sin logo propio del hotel: se muestra el de la cadena'),
-    h('span', { class: 'grow' }), h('button', { class: 'btn', onclick: () => logoIn.click() }, p.has_logo ? 'Cambiar logo del hotel' : 'Subir logo del hotel'), logoIn),
-    h('div', { class: 'hint' }, 'Aparece en la barra lateral. Usa el logo oficial que te dé el hotel o Hilton (PNG o JPG).')));
-  m.append(h('div', { class: 'card' }, h('h2', {}, 'Datos del sitio'), h('div', { class: 'row' },
+  m.append(h('div', { class: 'card' }, h('h2', {}, 'Datos del hotel'), h('div', { class: 'row' },
     h('div', { class: 'grow' }, h('label', { class: 'hint' }, 'Nombre del hotel'), f.name),
     h('div', {}, h('label', { class: 'hint' }, 'Inn code'), h('br'), f.inn),
-    h('div', {}, h('label', { class: 'hint' }, 'Cadena'), h('br'), f.chain),
-    h('div', { class: 'grow' }, h('label', { class: 'hint' }, 'Marca / colección'), f.brand))));
-
-  const tpl = h('div', { class: 'card' }, h('h2', {}, 'Plantillas de nombre por tipo de equipo'),
-    h('p', { class: 'hint' }, 'Escribe el patrón. Lo que no esté entre llaves es texto fijo (p. ej. HLT-). Pulsa un token para insertarlo en el campo activo.'),
-    h('div', {}, TOKENS.map(([t, d]) => h('span', { class: 'tok', title: d, onmousedown: e => { e.preventDefault(); insertToken(t); } }, t))));
-  const prevs = {};
-  const sample = { AP: { model: 'CW9172H', role: 'AP', n: 23 }, SW: { model: 'C9300-48U', role: 'AS', n: 3 }, MX: { model: 'MX105', role: 'MX', n: 1 },
-                   WLC: { model: 'C9800-L', role: 'WLC', n: 1 }, SRV: { model: 'SRV', role: 'SRV', n: 1 }, TV: { model: 'TV', role: 'TV', n: 1 }, OTHER: { model: 'XXX', role: 'DV', n: 1 } };
-  const upd = guard(async t => {
-    const sm = sample[t.replace('_ZONE', '')];
-    const r = await api('GET', `/api/name-preview?template=${encodeURIComponent(cfg.templates[t] || '')}&inn=${encodeURIComponent(f.inn.value || 'INN')}&model=${sm.model}&role=${cfg.role_codes[t.replace('_ZONE', '')] || sm.role}&n=${sm.n}&zone=CORR`);
-    prevs[t].textContent = r.name;
-  });
-  (S.status.device_types || []).flatMap(t => t === 'AP' ? ['AP', 'AP_ZONE'] : [t]).forEach(t => {
-    const inp = h('input', { class: 'mono tplinput', value: cfg.templates[t] || '', oninput: e => { cfg.templates[t] = e.target.value; upd(t); } });
-    prevs[t] = h('span', { class: 'name' });
-    if (t === 'AP_ZONE') { cfg.templates[t] = cfg.templates[t] || ''; }
-    const role = t === 'AP_ZONE' ? h('span') : h('input', { value: cfg.role_codes[t] || '', style: 'width:70px', title: 'Rol por defecto ({ROLE})', oninput: e => { cfg.role_codes[t] = e.target.value; upd(t); } });
-    tpl.append(h('div', { class: 'tplrow' }, h('b', { title: t === 'AP_ZONE' ? 'Se usa en los modelos que tengan zona (ver más abajo)' : '' }, t === 'AP_ZONE' ? 'AP + zona' : t), inp, h('div', {}, prevs[t])));
-    if (t !== 'AP_ZONE') tpl.lastChild.querySelector('div:last-child').append(h('span', { class: 'hint' }, '  rol '), role);
-    upd(t);
-  });
-  m.append(tpl);
-
-  cfg.floor_labels = cfg.floor_labels || {};
-  m.append(h('div', { class: 'card' }, h('h2', {}, 'Cómo se escribe la planta en el nombre'),
-    h('p', { class: 'hint' }, 'Formato «planta=texto» separado por comas. Ejemplo: -1=LL, 0=GF. Las plantas que no pongas se escriben tal cual.'),
-    h('input', { style: 'width:100%', value: Object.entries(cfg.floor_labels).map(([k, v]) => `${k}=${v}`).join(', '), placeholder: '-1=LL',
-      oninput: e => { cfg.floor_labels = {}; e.target.value.split(',').forEach(x => { const [k, v] = x.split('='); if (k && v && k.trim()) cfg.floor_labels[k.trim()] = v.trim(); }); } })));
-  const models = [...new Set(S.devices.map(d => d.model).filter(Boolean))];
-  const al = h('div', { class: 'card' }, h('h2', {}, 'Código corto y zona por modelo'),
-    h('p', { class: 'hint' }, 'Código corto: se deduce solo (CW9172H → 9172H). Zona: para APs que no van a una habitación concreta (p. ej. CORR en pasillos); esos modelos usan la plantilla «AP + zona».'));
-  cfg.model_zones = cfg.model_zones || {};
-  if (!models.length) al.append(h('div', { class: 'hint' }, 'Aparecerá cuando haya modelos en el inventario.'));
-  cfg.model_aliases = cfg.model_aliases || {};
-  models.forEach(mod => {
-    const auto = S.devices.find(d => d.model === mod).model_short;
-    al.append(h('div', { class: 'row', style: 'margin:4px 0' }, h('span', { class: 'mono', style: 'width:200px' }, mod), '→',
-      h('input', { value: cfg.model_aliases[mod] || '', placeholder: auto, style: 'width:120px', oninput: e => { if (e.target.value) cfg.model_aliases[mod] = e.target.value; else delete cfg.model_aliases[mod]; } }),
-      h('span', { class: 'hint' }, '  zona'), h('input', { value: cfg.model_zones[mod] || '', placeholder: '(ninguna)', style: 'width:110px;text-transform:uppercase', oninput: e => { if (e.target.value) cfg.model_zones[mod] = e.target.value.toUpperCase(); else delete cfg.model_zones[mod]; } })));
-  });
-  m.append(al);
-  m.append(h('div', { class: 'row' },
-    h('button', { class: 'btn primary', onclick: guard(async () => {
-      const upd2 = await api('PUT', `/api/projects/${pid()}`, { name: f.name.value, inn_code: f.inn.value, brand: f.brand.value, chain: f.chain.value, config: cfg });
-      Object.assign(S.project, upd2); await loadProjects(pid()); toast('Guardado');
-    }) }, 'Guardar cambios'),
-    h('button', { class: 'btn', onclick: guard(async () => {
-      const name = prompt('Guardar estas plantillas como perfil de cadena (p. ej. Marriott):', f.chain.value); if (!name) return;
-      await api('POST', '/api/profiles', { name, config: cfg }); S.profiles = await api('GET', '/api/profiles'); toast(`Perfil «${name}» guardado: úsalo al crear otros sitios`);
-    }) }, 'Guardar como perfil de cadena'),
-    h('button', { class: 'btn danger', onclick: guard(async () => {
-      if (!confirm('¿Borrar este sitio y todo su inventario?')) return;
-      await api('DELETE', `/api/projects/${pid()}`); S.project = null; await loadProjects(); toast('Sitio borrado');
-    }) }, 'Borrar sitio')));
+    h('div', { class: 'grow' }, h('label', { class: 'hint' }, 'Marca / colección'), f.brand)),
+    h('div', { class: 'row', style: 'margin-top:12px' }, p.has_logo ? h('img', { src: `/api/projects/${p.id}/logo?v=${p.logo_v || ''}`, style: 'height:48px;max-width:180px;object-fit:contain' }) : h('span', { class: 'hint' }, 'Logo: usa el de Hilton por defecto'),
+      h('button', { class: 'btn', onclick: () => logoIn.click() }, p.has_logo ? 'Cambiar logo del hotel' : 'Subir logo del hotel'), logoIn,
+      h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: guard(async () => {
+        const upd2 = await api('PUT', `/api/projects/${pid()}`, { name: f.name.value, inn_code: f.inn.value, brand: f.brand.value, chain: p.chain, config: p.config });
+        Object.assign(S.project, upd2); await loadProjects(pid()); toast('Guardado'); }) }, 'Guardar'))));
+  m.append(h('div', { class: 'card' }, h('h2', {}, 'Cómo se nombran los equipos'),
+    h('div', { class: 'hint' }, 'Todo automático según el estándar Hilton:'),
+    h('div', { class: 'mono', style: 'margin:6px 0' }, 'AP habitación   HLT-PARGE-9172H-2-203-AP021'),
+    h('div', { class: 'mono' }, 'AP pasillo      HLT-PARGE-9172I-1-101-CORR-AP010'),
+    h('div', { class: 'mono' }, 'Switch          HLT-PARGE-9300-IDF-AS03'),
+    h('div', { class: 'hint', style: 'margin-top:8px' }, 'Plantas: LL (sótano), GF (planta baja) y 1 a 7. Los APs 9172I y 9174I llevan la zona CORR. Los números de AP llevan 3 dígitos (AP001…AP052).')));
   m.append(h('div', { class: 'card' }, h('h2', {}, 'Vaciar datos cargados'),
-    h('p', { class: 'hint' }, 'Borra equipos, racks, escaneos, el AP Plan y las fotos de este sitio, y conserva los ajustes (nombres, plantillas, logo). Útil para pasar de las pruebas a la instalación real.'),
+    h('p', { class: 'hint' }, 'Borra equipos, racks, escaneos, el AP Plan y las fotos, y conserva los ajustes. Útil para pasar de las pruebas a la instalación real.'),
     h('button', { class: 'btn danger', onclick: guard(async () => {
       const t = prompt('Esto borra TODO lo cargado en este sitio y no se puede deshacer.\nEscribe VACIAR para confirmar:');
       if (t !== 'VACIAR') return;
@@ -256,15 +208,15 @@ function viewInventory(m) {
   const card = h('div', { class: 'card' }, h('div', { class: 'row', style: 'margin-bottom:10px' }, h('h2', { style: 'margin:0' }, 'Inventario'), h('span', { class: 'grow' }), q, ft, fs,
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.xlsx`) }, '⬇ Excel'),
     h('button', { class: 'btn', onclick: () => download(`/api/projects/${pid()}/export.csv`) }, '⬇ CSV')),
-    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (etiqueta)', 'Cloud ID', 'MAC', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Estado', 'Tipo', 'Caja', 'Modelo', 'Serial (etiqueta)', 'Cloud ID', 'MAC', 'Planta', 'Hab. / zona', 'Nombre del equipo', 'Notas', ''].map(x => h('th', {}, x)))), body)));
   m.append(card);
   function fillRows() {
     body.innerHTML = ''; const k = S.filter.q.toLowerCase();
     const rows = S.devices.filter(d => (!S.filter.type || d.dtype === S.filter.type) && (!S.filter.status || d.status === S.filter.status) &&
       (!k || [d.name, d.serial, d.cloud_id, d.mac, d.box_code, d.model].join(' ').toLowerCase().includes(k)));
-    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 9, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Sube la plantilla o fotografía las cajas.')));
+    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 11, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Sube la plantilla o fotografía las cajas.')));
     rows.slice(0, 600).forEach(d => body.append(devRow(d)));
-    if (rows.length > 600) body.append(h('tr', {}, h('td', { colspan: 9, class: 'hint' }, `Mostrando 600 de ${rows.length}. Usa el filtro.`)));
+    if (rows.length > 600) body.append(h('tr', {}, h('td', { colspan: 11, class: 'hint' }, `Mostrando 600 de ${rows.length}. Usa el filtro.`)));
   }
   fillRows();
 }
@@ -285,6 +237,7 @@ function devRow(d) {
         (S.status.device_types || []).map(t => h('option', { value: t, selected: t === d.dtype }, t)))),
       h('td', { style: 'width:100px' }, cellInput(d, 'box_code'), d.spare ? h('span', { class: 'badge b-added', style: 'margin-top:3px' }, 'SPARE') : null), h('td', { style: 'width:150px' }, cellInput(d, 'model')),
       h('td', { style: 'width:170px' }, cellInput(d, 'serial')), h('td', { style: 'width:170px' }, cellInput(d, 'cloud_id')), h('td', { style: 'width:175px' }, cellInput(d, 'mac')),
+      h('td', { style: 'width:70px' }, d.dtype === 'AP' ? cellInput(d, 'floor', '60px') : ''), h('td', { style: 'width:90px' }, d.dtype === 'AP' ? cellInput(d, 'room', '80px') : ''),
       h('td', {}, nameCell(d), d.sw_code ? h('div', { class: 'hint' }, `→ ${d.sw_code} · puerto ${d.sw_port}`) : null), h('td', {}, h('span', { class: 'flag' }, d.issues || '')),
       h('td', {}, h('button', { class: 'btn sm danger', title: 'Eliminar', onclick: guard(async () => { if (!confirm('¿Eliminar este equipo?')) return; await api('DELETE', `/api/devices/${d.id}`); S.devices = S.devices.filter(x => x !== d); await refreshAll(); render(); }) }, '✕')));
   };
@@ -292,9 +245,26 @@ function devRow(d) {
   return row;
 }
 async function addManual() {
-  const model = prompt('Modelo (p. ej. CW9172H):'); if (!model) return;
-  const box = prompt('Código de caja (p. ej. AP01):') || ''; const serial = prompt('Serial (opcional):') || ''; const mac = prompt('MAC (opcional):') || '';
-  await guard(async () => { await api('POST', `/api/projects/${pid()}/devices`, { model, box_code: box, serial, mac }); await refreshAll(); render(); toast('Añadido'); })();
+  const models = await api('GET', `/api/projects/${pid()}/models`);
+  if (!models.length) { toast('Primero importa el pedido (Hardware Order): de ahí salen los modelos exactos', true); return; }
+  const FLOORS = [['-1', 'LL'], ['0', 'GF'], ...[1, 2, 3, 4, 5, 6, 7].map(n => [String(n), String(n)])];
+  const dlg = h('dialog', { class: 'dlg' });
+  const sel = h('select', {}, models.map(m => h('option', { value: m.model }, `${m.model}  (${m.dtype})`)));
+  const box = h('input', { placeholder: 'AP01', style: 'text-transform:uppercase' }), serial = h('input', { placeholder: 'Serial de la etiqueta', class: 'mono' }), mac = h('input', { placeholder: 'MAC', class: 'mono' });
+  const floor = h('select', {}, h('option', { value: '' }, '— planta —'), FLOORS.map(([v, l]) => h('option', { value: v }, l))), room = h('input', { placeholder: 'Habitación (opcional)' });
+  const apOnly = h('div', { class: 'dlgrow' }, h('label', {}, 'Planta ', floor), h('label', {}, 'Habitación ', room));
+  const upd = () => { const m = models.find(x => x.model === sel.value); apOnly.style.display = m && m.dtype === 'AP' ? '' : 'none'; }; sel.onchange = upd; upd();
+  const ok = h('button', { class: 'btn primary', onclick: guard(async () => {
+    const m = models.find(x => x.model === sel.value);
+    if (!box.value.trim()) { toast('Escribe el código de caja (AP01…)', true); return; }
+    if (m.dtype === 'AP' && !floor.value) { toast('Elige la planta del AP', true); return; }
+    await api('POST', `/api/projects/${pid()}/devices`, { model: sel.value, dtype: m.dtype, box_code: box.value, serial: serial.value, mac: mac.value, floor: floor.value, room: room.value });
+    dlg.close(); dlg.remove(); await refreshAll(); render(); toast('Añadido'); }) }, 'Añadir');
+  dlg.append(h('h2', {}, 'Añadir equipo a mano'),
+    h('label', {}, 'Modelo (exacto del pedido)', sel), h('label', {}, 'Código de caja (rotulador)', box), apOnly,
+    h('label', {}, 'Serial', serial), h('label', {}, 'MAC', mac),
+    h('div', { class: 'dlgrow', style: 'justify-content:flex-end;margin-top:12px' }, h('button', { class: 'btn', onclick: () => { dlg.close(); dlg.remove(); } }, 'Cancelar'), ok));
+  document.body.append(dlg); dlg.showModal();
 }
 
 /* ---- numeración correlativa de cajas */
@@ -341,7 +311,7 @@ function renderReview(r) {
   const items = r.items;
   const body = h('tbody');
   const card = h('div', { class: 'card', style: 'border-color:var(--sky)' }, h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, `Revisa lo leído (${items.length})`),
-    h('span', { class: 'chip' }, r.provider === 'claude' ? 'Leído con IA' : 'Leído con OCR local')), 
+    h('span', { class: 'chip' }, (r.provider.startsWith('claude') ? 'Leído con IA' : 'Leído con OCR local') + (r.provider.includes('barras') ? ' + códigos de barras' : ''))), 
     h('p', { class: 'hint' }, 'Corrige cualquier dato antes de confirmar. Las filas con aviso rojo conviene mirarlas con la caja delante.'));
   const typeSel = it => h('select', { onchange: e => it.dtype = e.target.value }, (S.status.device_types || []).map(t => h('option', { value: t, selected: it.dtype === t }, t)));
   const inp = (it, k, cls) => h('input', { class: cls || '', value: it[k] || '', onchange: e => { it[k] = e.target.value; } });

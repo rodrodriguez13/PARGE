@@ -138,6 +138,87 @@ def extract_ocr(images, hints=""):
     return out
 
 
+# ---------------------------------------------------------------- códigos de barras (etiqueta: modelo, serial, MAC)
+def _lev(a, b):
+    if a == b: return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def read_barcodes(data):
+    """Decodifica todos los códigos de barras / QR de la foto. Devuelve [{text, x, y}] (posición en la imagen)."""
+    try:
+        import zxingcpp, numpy as np
+    except Exception:
+        return []
+    im = _prep(data, max_edge=4000).convert("RGB")
+    arr = np.array(im)
+    found = {}
+    def run(a, ox=0, oy=0):
+        for r in zxingcpp.read_barcodes(a):
+            t = (r.text or "").strip()
+            if t and t not in found:
+                p = r.position.top_left
+                found[t] = {"text": t, "x": p.x + ox, "y": p.y + oy}
+    run(arr)
+    H, W = arr.shape[:2]
+    for n in (2, 3):                               # cuadrantes con solape: encuentra los códigos pequeños en fotos de varias cajas
+        th, tw = H // n, W // n
+        for i in range(n):
+            for j in range(n):
+                y0, x0 = max(0, i * th - th // 5), max(0, j * tw - tw // 5)
+                run(arr[y0:min(H, (i + 1) * th + th // 5), x0:min(W, (j + 1) * tw + tw // 5)], x0, y0)
+    return list(found.values())
+
+
+def _classify(text, known_models):
+    t = text.strip().upper()
+    c = re.sub(r"[^0-9A-Z]", "", t)
+    if re.fullmatch(r"[0-9A-F]{12}", c) and not re.fullmatch(r"\d{12}", c): return "mac", c
+    if re.fullmatch(r"Q[0-9A-Z]{11}", c): return "serial", f"{c[:4]}-{c[4:8]}-{c[8:]}"
+    if CATALYST_SN.fullmatch(c): return "serial", c
+    for k in known_models or []:
+        if c == re.sub(r"[^0-9A-Z]", "", k.upper()): return "model", k
+    if MODEL_RE.search(t) or "-HILU" in t: return "model", t
+    return "other", t
+
+
+def merge_barcodes(items, bcs, known_models=None):
+    """Los códigos de barras son exactos: corrigen lo leído por OCR/IA y añaden lo que no se había visto."""
+    macs, sers, models = [], [], []
+    for b in bcs:
+        kind, val = _classify(b["text"], known_models)
+        if kind == "mac": macs.append({**b, "v": val})
+        elif kind == "serial": sers.append({**b, "v": val})
+        elif kind == "model": models.append({**b, "v": val})
+    if not (macs or sers): return items
+    def norm(s): return re.sub(r"[^0-9A-Z]", "", str(s or "").upper())
+    used_m, used_s = set(), set()
+    for it in items:
+        for b in sers:
+            if b["v"] not in used_s and norm(it.get("serial")) and _lev(norm(it["serial"]), norm(b["v"])) <= 2:
+                it["serial"] = b["v"]; used_s.add(b["v"]); it["confidence"] = 1.0; it["via_barcode"] = True
+        for b in macs:
+            if b["v"] not in used_m and norm(it.get("mac")) and _lev(norm(it["mac"]), b["v"]) <= 2:
+                it["mac"] = b["v"]; used_m.add(b["v"]); it["confidence"] = 1.0; it["via_barcode"] = True
+    free_m = [b for b in macs if b["v"] not in used_m]
+    new = []
+    for s in [b for b in sers if b["v"] not in used_s]:       # serial sin dueño: emparejar con el MAC más cercano de la misma etiqueta
+        mm = min(free_m, key=lambda m: (m["x"] - s["x"]) ** 2 + (m["y"] - s["y"]) ** 2, default=None)
+        if mm: free_m.remove(mm)
+        mod = min(models, key=lambda m: (m["x"] - s["x"]) ** 2 + (m["y"] - s["y"]) ** 2, default=None)
+        new.append({"box_code": "", "model": mod["v"] if mod else "", "serial": s["v"], "mac": mm["v"] if mm else "",
+                    "confidence": 0.95, "notes": "leído del código de barras", "via_barcode": True})
+    for mm in free_m:
+        new.append({"box_code": "", "model": "", "serial": "", "mac": mm["v"], "confidence": 0.8, "notes": "solo MAC en código de barras", "via_barcode": True})
+    return items + new
+
+
 def extract(images, known_models=None, detailed=True):
     """images: lista de (nombre, bytes). Devuelve (proveedor, items)."""
     hints = ""
@@ -145,6 +226,17 @@ def extract(images, known_models=None, detailed=True):
         hints = "- Modelos esperados en este proyecto (úsalos para desambiguar): " + ", ".join(sorted(set(known_models)))
     if PROVIDER_OVERRIDE:
         return "test", PROVIDER_OVERRIDE(images, hints)
-    if ai_available():
-        return "claude", extract_ai(images, hints, detailed)
-    return "tesseract", extract_ocr(images, hints)
+    provider, items = ("claude", None) if ai_available() else ("tesseract", None)
+    out = []
+    for name, data in images:
+        one = [(name, data)]
+        got = extract_ai(one, hints, detailed) if provider == "claude" else extract_ocr(one, hints)
+        try:
+            bcs = read_barcodes(data)
+        except Exception:
+            bcs = []
+        if bcs:
+            got = merge_barcodes(got, bcs, known_models)
+            for g in got: g.setdefault("source_file", name)
+        out += got
+    return (provider + "+barras" if any(i.get("via_barcode") for i in out) else provider), out

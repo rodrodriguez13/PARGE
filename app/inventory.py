@@ -18,6 +18,18 @@ def norm_model(v):
     return re.sub(r"[^A-Z0-9]", "", str(v or "").upper())
 
 
+def canon_model(project, model):
+    """Devuelve el modelo exacto del pedido (CW9174I-CFG-HILU) cuando lo escriben corto (CW9174I)."""
+    sm = norm_model(model)
+    if not sm: return (model or "").strip()
+    known = sorted({d.exp_model or d.model for d in project.devices if (d.exp_model or d.model)}, key=len, reverse=True)
+    for k in known:
+        if norm_model(k) == sm: return k
+    for k in known:
+        if norm_model(k).startswith(sm) and len(sm) >= 5: return k
+    return (model or "").strip()
+
+
 def serial_ok(s):
     s = norm_serial(s)
     return bool(re.match(r"^Q[0-9A-Z]{3}-[0-9A-Z]{4}-[0-9A-Z]{4}$", s)      # Meraki AP / switches
@@ -187,7 +199,7 @@ def apply_scan_items(db, project, items, scan_id=None):
     res = {"confirmed": 0, "received": 0, "added": 0, "mismatch": 0, "duplicates": 0}
     for it in items:
         serial, mac = clean_serial(it.get("serial")), norm_mac(it.get("mac"))
-        model, code = (it.get("model") or "").strip(), norm_box_code(it.get("box_code") or "")
+        model, code = canon_model(project, (it.get("model") or "").strip()), norm_box_code(it.get("box_code") or "")
         dtype = it.get("dtype") or guess_type(model, code, prefixes)
         d = find_existing(devices, serial, mac)
         if d is not None and d.status != "expected":
