@@ -146,10 +146,10 @@ function viewSettings(m) {
         Object.assign(S.project, upd2); await loadProjects(pid()); toast('Guardado'); }) }, 'Guardar'))));
   m.append(h('div', { class: 'card' }, h('h2', {}, 'Cómo se nombran los equipos'),
     h('div', { class: 'hint' }, 'Todo automático según el estándar Hilton:'),
-    h('div', { class: 'mono', style: 'margin:6px 0' }, 'AP habitación   HLT-PARGE-9172H-2-203-AP021'),
+    h('div', { class: 'mono', style: 'margin:6px 0' }, 'AP sin zona      HLT-PARGE-9172H-2-203-AP021'),
     h('div', { class: 'mono' }, 'AP con zona      HLT-PARGE-9172I-1-101-CORR-AP010'),
     h('div', { class: 'mono' }, 'Switch          HLT-PARGE-9300-IDF-AS03'),
-    h('div', { class: 'hint', style: 'margin-top:8px' }, 'Plantas: LL (sótano), GF (planta baja) y 1 a 7. Los APs 9172I y 9174I llevan la zona CORR. Los números de AP llevan 3 dígitos (AP001…AP052).')));
+    h('div', { class: 'hint', style: 'margin-top:8px' }, 'Plantas: LL (sótano), GF (planta baja) y 1 a 7. La zona (CORR, etc.) no es fija: es opcional y se escribe por equipo. Los números de AP llevan 3 dígitos (AP001…AP052).')));
   m.append(h('div', { class: 'card' }, h('h2', {}, 'Vaciar datos cargados'),
     h('p', { class: 'hint' }, 'Borra equipos, racks, escaneos, el AP Plan y las fotos, y conserva los ajustes. Útil para pasar de las pruebas a la instalación real.'),
     h('button', { class: 'btn danger', onclick: guard(async () => {
@@ -169,7 +169,7 @@ function insertToken(t) {
 
 /* ---------------------------------------------------------------- 1 · INVENTARIO */
 function viewInventory(m) {
-  m.append(...header('1 · Control de inventario', 'Sube la plantilla (si existe), fotografía las cajas al recibirlas y el sistema valida lo que llega contra lo esperado.'));
+  m.append(...header('1 · Control de inventario', 'Carga los listados de Meraki (APs y switches), fotografía las cajas al recibirlas y el sistema valida lo que llega.'));
   const sm = S.summary, bs = sm.by_status, tot = S.devices.length;
   m.append(h('div', { class: 'stats' },
     stat(tot, 'Equipos en total'), stat(bs.expected || 0, 'Esperados (aún no llegan)'), stat((bs.received || 0) + (bs.confirmed || 0), 'Recibidos'),
@@ -185,9 +185,7 @@ function viewInventory(m) {
   const cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
   const pick = h('input', { type: 'file', accept: 'image/*', multiple: true, style: 'display:none', onchange: e => scanFiles(e.target.files, e.target) });
   m.append(h('div', { class: 'card tint' }, h('div', { class: 'row' },
-    h('button', { class: 'btn', onclick: () => up.click() }, '⬆ Subir plantilla de inventario'),
-    h('button', { class: 'btn', title: 'access_points.csv y switches.csv del dashboard de Meraki', onclick: () => mer.click() }, '⬆ Listados de Meraki (CSV)'),
-    h('button', { class: 'btn', onclick: () => download('/api/inventory/template.xlsx') }, 'Descargar plantilla vacía'),
+    h('button', { class: 'btn primary', title: 'access_points.csv y switches.csv del dashboard de Meraki (elige los dos a la vez)', onclick: () => mer.click() }, '⬆ Cargar listados de Meraki (CSV)'),
     h('span', { class: 'grow' }),
     h('button', { class: 'btn primary', onclick: () => cam.click() }, '📷 Fotografiar cajas'),
     h('button', { class: 'btn', onclick: () => pick.click() }, 'Elegir fotos'),
@@ -195,9 +193,7 @@ function viewInventory(m) {
     up, cam, pick),
     h('p', { class: 'hint', style: 'margin:10px 0 0' }, 'Consejo para las fotos: 4–6 cajas por foto, con la pegatina de frente y sin reflejos; el código a rotulador (AP01, SW01…) visible junto a la pegatina.')));
   m.append(h('div', { id: 'scanzone' }));
-  if (S.lastImport && S.lastImport.length) m.append(h('div', { class: 'card', style: 'background:var(--warn-bg)' }, h('div', { class: 'row' }, h('b', {}, 'No importado (no son equipos activos)'), h('span', { class: 'grow' }),
-    h('button', { class: 'btn sm', onclick: () => { S.lastImport = null; render(); } }, 'Ocultar')),
-    h('div', { class: 'hint', style: 'margin-top:6px' }, S.lastImport.map(x => `${x.model} ×${x.qty}`).join(' · '))));
+  const matBox = h('div', {}); m.append(matBox); viewMaterial(matBox);
 
   const numBox = h('div'); m.append(numBox); if (tot) renderNumbering(numBox);
   if (sm.models.length) m.append(h('div', { class: 'card' }, h('h2', {}, 'Resumen por modelo'),
@@ -218,7 +214,7 @@ function viewInventory(m) {
     body.innerHTML = ''; const k = S.filter.q.toLowerCase();
     const rows = S.devices.filter(d => (!S.filter.type || d.dtype === S.filter.type) && (!S.filter.status || d.status === S.filter.status) &&
       (!k || [d.name, d.serial, d.cloud_id, d.mac, d.box_code, d.model].join(' ').toLowerCase().includes(k)));
-    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 12, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Sube la plantilla o fotografía las cajas.')));
+    if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 12, class: 'empty' }, tot ? 'Nada coincide con el filtro.' : 'Aún no hay equipos. Pulsa «Cargar listados de Meraki (CSV)» y elige access_points.csv y switches.csv.')));
     rows.slice(0, 600).forEach(d => body.append(devRow(d)));
     if (rows.length > 600) body.append(h('tr', {}, h('td', { colspan: 12, class: 'hint' }, `Mostrando 600 de ${rows.length}. Usa el filtro.`)));
   }
@@ -555,8 +551,8 @@ function devPanel(d, redraw) {
     if (!e.target.files[0]) return; const fd = new FormData(); fd.append('file', e.target.files[0]);
     Object.assign(d, await api('POST', `/api/devices/${d.id}/photo`, fd)); toast('Foto guardada'); redraw(); }) });
   const p = h('div', { class: 'card devpanel' + (d.installed ? ' done' : '') },
-    h('h2', {}, d.box_code || d.model, d.spare ? h('span', { class: 'badge b-added', style: 'margin-left:8px' }, 'SPARE') : null),
-    h('div', { class: 'mono', style: 'word-break:break-all' }, d.name), h('div', { class: 'hint' }, `${d.model}${d.floor ? ' · planta ' + d.floor : ''}${d.room ? ' · hab. ' + d.room : ''}${d.rack_code ? ' · ' + d.rack_code : ''}`),
+    h('h2', { style: 'word-break:break-all;font-size:16px' }, d.name, d.spare ? h('span', { class: 'badge b-added', style: 'margin-left:8px' }, 'SPARE') : null),
+    h('div', { style: 'font-weight:600' }, d.model), h('div', { class: 'hint' }, `${d.box_code ? d.box_code + ' · ' : ''}${d.floor ? 'planta ' + d.floor : ''}${d.room ? ' · hab. ' + d.room : ''}${d.rack_code ? ' · ' + d.rack_code : ''}`),
     d.dtype === 'AP' ? h('div', { class: 'conn' }, d.sw_code ? [h('b', {}, `${d.sw_code}`), ` · puerto `, h('b', {}, String(d.sw_port))] : h('span', { class: d.spare ? 'hint' : 'warn-t' }, d.spare ? 'Spare: sin puerto' : 'Sin puerto asignado')) : null,
     h('button', { class: 'btn big ' + (d.installed ? 'okbtn' : 'primary'), onclick: guard(() => save({ installed: !d.installed })) }, d.installed ? '✓ Instalado — pulsa para deshacer' : 'Marcar como instalado'),
     d.installed_at ? h('div', { class: 'hint' }, 'Instalado: ' + new Date(d.installed_at + 'Z').toLocaleString('es-ES') + (d.installed_by ? ' · ' + d.installed_by : '')) : null,
@@ -617,23 +613,23 @@ async function instPorts(box) {
   S.portmap.switches.forEach(sw => {
     const used = sw.ports.filter(p => p.device_id), done = used.filter(p => p.installed).length;
     const num = pt => { const m = /AP(\d+)$/.exec(pt.name || ''); return m ? m[1] : (pt.box_code || ''); };
-    const cell = pt => { const u = pt.device_id;
-      return h('button', { class: 'fp' + (u ? (pt.installed ? ' inst' : ' ap') : ''), title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · instalado' : ''}` : 'Libre',
-        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } } },
-        h('b', {}, pt.port), h('span', {}, u ? (pt.installed ? '✓' : 'AP') : ''), h('small', {}, u ? num(pt) : '')); };
+    const mport = (pt, top) => { const u = pt.device_id; const lab = h('div', { class: 'mpn' }, pt.port);
+      const jack = h('button', { class: 'mp' + (u ? (pt.installed ? ' inst' : ' ap') : ''), title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · instalado' : ' · pendiente'}` : `Puerto ${pt.port} libre`,
+        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } } }, u ? h('b', {}, 'AP' + num(pt)) : h('span', { class: 'jk' }), u && pt.installed ? h('i', {}, '✓') : null);
+      return h('div', { class: 'mpc' }, top ? lab : null, jack, top ? null : lab); };
     const cols = Math.ceil(sw.n_ports / 2), groups = [];
-    for (let g = 0; g < cols; g += 4) {                       // grupos de 4 columnas, impares arriba / pares abajo
+    for (let g = 0; g < cols; g += 6) {                       // como el dashboard de Meraki: bloques de 12 puertos, impares arriba / pares abajo
       const top = [], bot = [];
-      for (let c = g; c < Math.min(g + 4, cols); c++) { const a = sw.ports.find(p => p.port === 2 * c + 1), z = sw.ports.find(p => p.port === 2 * c + 2); if (a) top.push(cell(a)); if (z) bot.push(cell(z)); }
-      groups.push(h('div', { class: 'fpgrp' }, h('div', { class: 'fprow' }, top), h('div', { class: 'fprow' }, bot)));
+      for (let c = g; c < Math.min(g + 6, cols); c++) { const x = sw.ports.find(p => p.port === 2 * c + 1), y = sw.ports.find(p => p.port === 2 * c + 2); if (x) top.push(mport(x, true)); if (y) bot.push(mport(y, false)); }
+      groups.push(h('div', { class: 'mgrp' }, h('div', { class: 'mrow' }, top), h('div', { class: 'mrow' }, bot)));
     }
     const nums = used.map(p => p.port), range = nums.length ? `${Math.min(...nums)}-${Math.max(...nums)}` : '—';
     box.append(h('div', { class: 'card swcard' }, h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, `${sw.box_code} · ${sw.model.replace(/-M-HILU/, '')}`), h('span', { class: 'badge' }, sw.rack || 'sin rack'), h('span', { class: 'grow' }),
       h('span', { class: 'hint' }, `${used.length} APs · ${done} instalados · ${sw.n_ports} puertos`)),
       h('div', { class: 'fptitle' }, `${sw.name}  ·  Frontal`), h('div', { class: 'hint' }, `APs: puertos ${range} (${used.length})`),
-      h('div', { class: 'fplegend' }, h('i', { class: 'fp ap' }), ' AP pendiente  ', h('i', { class: 'fp inst' }), ' AP instalado  ', h('i', { class: 'fp' }), ' Libre'),
-      used.length ? h('div', { class: 'fpchassis' }, h('div', { class: 'fplabel' }, sw.model.replace(/-M-HILU/, '')), h('div', { class: 'fpports' }, groups)) : h('div', { class: 'hint', style: 'margin:10px 0' }, 'Sin APs conectados por ahora.'),
-      h('div', { class: 'hint' }, 'El número bajo cada puerto es el nº del AP. Arriba 1,3,5… / abajo 2,4,6…')));
+      h('div', { class: 'fplegend' }, h('i', { class: 'mp ap lg' }), ' AP que va en ese puerto (pendiente)  ', h('i', { class: 'mp inst lg' }), ' AP instalado  ', h('i', { class: 'mp lg' }), ' Puerto libre'),
+      h('div', { class: 'mchassis' }, h('div', { class: 'mgrps' }, groups)),
+      h('div', { class: 'hint' }, 'Cada puerto muestra el AP que debe ir conectado. Arriba 1, 3, 5… / abajo 2, 4, 6…')));
   });
   const un = S.portmap.unassigned.map(id => byId[id]).filter(Boolean);
   if (un.length) box.append(h('div', { class: 'card', style: 'background:var(--warn-bg)' }, h('b', {}, `${un.length} AP(s) sin puerto: `), un.map(d => d.box_code || d.model).join(', '), h('div', { class: 'hint' }, 'Normalmente es que faltan códigos de caja o el switch. Pulsa «Recalcular puertos» tras numerar.')));
@@ -646,4 +642,33 @@ function instRack(box) {
   const l = h('div', { class: 'aplist' }); list.forEach(d => l.append(h('button', { class: 'apchip wide' + (d.installed ? ' inst' : '') + (d.id === S.instSel ? ' sel' : ''), onclick: () => { S.instSel = d.id; redraw(); } },
     h('b', {}, d.box_code || d.model), h('small', {}, `${d.model.replace(/-HILU|-M-/g, '')} · ${d.rack_code || 'sin rack'}`), d.has_photo ? ' 📷' : '')));
   box.append(h('div', { class: 'grid2' }, h('div', { class: 'card' }, h('h2', {}, 'Switches y firewall'), l), sel ? devPanel(sel, redraw) : h('div', { class: 'card hint' }, 'Elige un equipo para marcarlo como instalado y añadir su foto.')));
+}
+
+
+/* ---- material pasivo del pedido: OK / NOK por línea */
+async function viewMaterial(box) {
+  box.innerHTML = '';
+  let rows; try { rows = await api('GET', `/api/projects/${pid()}/material`); } catch (e) { return; }
+  const ok = rows.filter(r => r.status === 'ok').length, nok = rows.filter(r => r.status === 'nok').length;
+  const act = {}; S.devices.forEach(d => { const k = d.exp_model || d.model; if (!k || !['AP', 'SW', 'MX'].includes(d.dtype)) return; act[k] = act[k] || { n: 0, got: 0 }; act[k].n++; if (d.status !== 'expected') act[k].got++; });
+  const patch = (r, body) => guard(async () => { Object.assign(r, await api('PATCH', `/api/material/${r.id}`, body)); viewMaterial(box); })();
+  const trs = rows.map(r => {
+    const note = h('input', { value: r.note || '', placeholder: r.status === 'nok' ? 'Obligatoria: qué falta' : 'Nota (opcional)', style: 'width:100%', onchange: () => patch(r, { note: note.value }) });
+    const btn = (label, st, cls) => h('button', { class: 'btn sm ' + (r.status === st ? cls : ''), style: r.status === st ? '' : 'opacity:.75', onclick: () => {
+      if (r.status === st) return patch(r, { status: 'pending' });
+      if (st === 'nok') { const t = prompt(`${r.part_number}: ¿qué falta o por qué no llegó? (obligatorio)`, r.note || ''); if (!t) return; return patch(r, { status: 'nok', note: t }); }
+      patch(r, { status: 'ok' }); } }, label);
+    return h('tr', { class: r.status === 'nok' ? 'rownok' : '' },
+      h('td', { class: 'mono' }, r.part_number),
+      h('td', {}, h('input', { value: r.description, style: 'width:100%', onchange: e => patch(r, { description: e.target.value }) })),
+      h('td', { style: 'text-align:right;font-weight:700' }, '× ' + r.qty),
+      h('td', { style: 'white-space:nowrap' }, btn('OK', 'ok', 'okbtn'), ' ', btn('NOK', 'nok', 'nokbtn')),
+      h('td', {}, note), h('td', { class: 'hint' }, r.checked_by ? `${r.checked_by}${r.checked_at ? ' · ' + new Date(r.checked_at + 'Z').toLocaleDateString() : ''}` : ''));
+  });
+  const actRows = Object.entries(act).map(([k, v]) => h('tr', {}, h('td', { class: 'mono' }, k), h('td', { class: 'hint' }, 'Equipo activo: se valida fotografiando la caja'),
+    h('td', { style: 'text-align:right;font-weight:700' }, '× ' + v.n), h('td', {}, h('span', { class: 'badge ' + (v.got === v.n ? 'b-confirmed' : 'b-expected') }, `${v.got} de ${v.n} recibidos`)), h('td'), h('td')));
+  box.append(h('div', { class: 'card' }, h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, 'Material y accesorios del pedido'), h('span', { class: 'grow' }),
+      h('span', { class: 'hint' }, `${ok} OK · ${nok} NOK · ${rows.length - ok - nok} pendientes de ${rows.length}`)),
+    h('p', { class: 'hint' }, 'Cables, SFP, twinax, fuentes y módulos. El técnico pulsa OK cuando llega lo indicado, o NOK con una nota si falta algo. Puedes corregir la descripción.'),
+    h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Part number', 'Descripción', 'Cant.', 'Validación', 'Nota', 'Revisó'].map(x => h('th', {}, x)))), h('tbody', {}, ...trs, ...actRows)))));
 }

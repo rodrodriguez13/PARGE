@@ -370,7 +370,7 @@ def meraki_apply(project, rows, kind):
 def meraki_fill(project, d):
     """Completa MAC/serial de un equipo con el listado de Meraki y avisa si el serial no es de este pedido o no cuadra el modelo."""
     m = (project.config or {}).get("meraki") or {}
-    book = {**(m.get("aps") or {}), **(m.get("sws") or {})}
+    book = {**(m.get("aps") or {}), **(m.get("sws") or {}), **(m.get("fixed") or {})}
     if not book: return
     msgs = []
     if d.serial and d.serial in book:

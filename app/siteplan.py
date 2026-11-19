@@ -34,6 +34,9 @@ def apply(db, p):
     cfg["site_plan"] = plan
     report = {"warnings": [], "ports": {}}
 
+    p.config = cfg
+    apply_fixed(p)
+    cfg = dict(p.config)
     # la zona (CORR…) ya no se fija por modelo: se escribe por equipo
     cfg["model_zones"] = {}
     p.config = cfg
@@ -92,3 +95,50 @@ def apply(db, p):
         report["ports"][code] = count
     db.commit()
     return report
+
+
+# ---------------------------------------------------------------- equipos esperados de PARGE (sin necesidad del pedido)
+SEED = [("CW9174I-CFG-HILU", "AP", 2), ("CW9172I-CFG-HILU", "AP", 16), ("CW9172H-RTG-HILU", "AP", 34),
+        ("C9300X-12Y-M-HILU", "SW", 1), ("C9300-24U-M-HILU", "SW", 2), ("C9300-48U-M-HILU", "SW", 1), ("MX105-HW-HILU", "MX", 1)]
+SPARES = {"CW9172I-CFG-HILU": 1, "CW9172H-RTG-HILU": 1}
+
+
+def seed_site(db, p):
+    """Crea los huecos de equipos de PARGE (52 APs, 4 switches, 1 firewall) con su modelo exacto. Los seriales y MAC los traen
+    los listados de Meraki y la foto de cada caja (el rotulador AP05 decide qué hueco ocupa)."""
+    from .db import Device
+    from . import naming
+    for model, dtype, qty in SEED:
+        for _ in range(qty):
+            db.add(Device(project_id=p.id, dtype=dtype, model=model, exp_model=model, status="expected", source="template",
+                          role=naming.default_role(model, dtype)))
+    db.commit(); db.refresh(p)
+
+
+# serial (Cloud ID) y MAC fijos de los equipos que no vienen en los CSV de APs o que se identifican por modelo único
+FIXED = {
+    "C9300X-12Y-M-HILU": [("Q5JC-3YLU-85CJ", "30:FE:FA:45:88:80")],
+    "C9300-48U-M-HILU": [("Q5KG-SFNN-7MLK", "44:1A:5C:3B:F6:00")],
+    "MX105-HW-HILU": [("Q3LB-8AXY-SLWS", "6C:7D:B7:38:B0:44")],
+}
+# los dos C9300-24U (b8:c9:24:9e:8c:80 y 14:e2:2a:8c:a6:00) se identifican con la foto de la caja (SW02 o SW04)
+
+
+def apply_fixed(p):
+    """Idempotente: da serial y MAC a los equipos únicos (core, 48U, MX105) y los añade al listado de validación."""
+    from . import inventory as inv
+    cfg = dict(p.config); m = dict(cfg.get("meraki") or {})
+    fixed = {}
+    for model, lst in FIXED.items():
+        for s_, mac in lst: fixed[s_] = inv.norm_mac(mac)
+    m["fixed"] = fixed
+    pm = dict(m.get("prefix_model") or {})
+    for model, lst in FIXED.items():
+        for s_, mac in lst: pm[s_[:4]] = model
+    m["prefix_model"] = pm
+    cfg["meraki"] = m; p.config = cfg
+    for d in p.devices:
+        lst = FIXED.get(d.exp_model or d.model)
+        if lst and not d.serial and d.status in ("expected", "received"):
+            d.serial, d.mac = lst[0][0], inv.norm_mac(lst[0][1])
+            d.exp_serial, d.exp_mac = d.serial, d.mac

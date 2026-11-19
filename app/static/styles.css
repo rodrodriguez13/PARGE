@@ -150,3 +150,22 @@ tr:hover td{background:#fafcff}
 .dlg h2{margin:0 0 10px}.dlg label{display:block;font-size:12px;color:var(--mute);margin-top:8px}
 .dlg input,.dlg select{display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:8px;border:1px solid #c5d3e0;border-radius:6px;font-size:14px}
 .dlgrow{display:flex;gap:10px}.dlgrow label{flex:1}.dlgrow .btn{margin:0}
+
+/* frontal estilo dashboard de Meraki */
+.mchassis{background:#fff;border:1px solid #dfe3e8;border-radius:8px;padding:12px 14px;overflow-x:auto}
+.mgrps{display:flex;gap:22px;width:max-content}
+.mgrp{display:flex;flex-direction:column;gap:2px;background:#e9ebee;border-radius:6px;padding:6px 6px}
+.mrow{display:flex;gap:4px}
+.mpc{display:flex;flex-direction:column;align-items:center;gap:2px}
+.mpn{font-size:11px;color:#444;height:13px;line-height:13px}
+.mp{all:unset;box-sizing:border-box;width:46px;height:34px;border-radius:5px;background:#343a40;border:1px solid #5b636b;display:flex;align-items:center;justify-content:center;position:relative;cursor:default}
+.mp .jk{width:22px;height:14px;border:2px solid #9aa2aa;border-top-width:4px;border-radius:2px;opacity:.55}
+.mp b{font-size:11px;color:#fff;letter-spacing:.2px}
+.mp i{position:absolute;top:-1px;right:2px;font-size:10px;color:#fff;font-style:normal}
+.mp.ap{background:#1d6fb8;border-color:#0f4f87;cursor:pointer}
+.mp.inst{background:#2fb344;border-color:#1f7a30;cursor:pointer}
+.mp.lg{width:16px;height:14px;display:inline-block;vertical-align:middle;pointer-events:none}
+
+.btn.okbtn{background:#2fb344;color:#fff;border-color:#1f7a30}
+.btn.nokbtn{background:#d64545;color:#fff;border-color:#a32b2b}
+tr.rownok td{background:#fdecec}

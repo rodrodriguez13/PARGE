@@ -7,7 +7,7 @@ from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, object_session
 
-from .db import (init_db, SessionLocal, DATA_DIR, ChainProfile, Project, Device, Rack, Scan, ApPlan, ApMarker)
+from .db import (init_db, SessionLocal, DATA_DIR, ChainProfile, Project, Device, Rack, Scan, ApPlan, ApMarker, MaterialItem)
 from . import naming, inventory as inv, vision, approcess as ap, siteplan, storage, auth
 from PIL import Image, ImageOps
 
@@ -87,7 +87,7 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
-APP_VERSION = "2026.11.19-d"
+APP_VERSION = "2026.11.19-i"
 
 
 @app.middleware("http")
@@ -210,6 +210,7 @@ def reset_project(pid: int, body: dict = Body(...), db: Session = Depends(get_db
         if d.photo: storage.delete(d.photo, db)
     for pl in db.query(ApPlan).filter_by(project_id=pid): storage.delete(f"plan:{pl.id}", db); db.delete(pl)
     for sc in db.query(Scan).filter_by(project_id=pid): db.delete(sc)
+    for x in db.query(MaterialItem).filter_by(project_id=pid): db.delete(x)
     for d in list(p.devices): db.delete(d)
     for r in list(p.racks): db.delete(r)
     db.commit()
@@ -296,6 +297,12 @@ EDITABLE = ("dtype", "box_code", "role", "seq", "model", "serial", "mac", "ip", 
 async def import_meraki(pid: int, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
     """CSV del dashboard de Meraki (access_points.csv y/o switches.csv): MAC y serial de cada equipo, para completar y validar."""
     p = _project(db, pid); out = {}
+    if not any(d.dtype == "AP" for d in p.devices):          # primera carga: nace el inventario esperado de PARGE
+        siteplan.seed_site(db, p)
+        apply_numbering(pid, {"dtype": "AP", "order": [x[0] for x in siteplan.SEED if x[1] == "AP"], "spares": siteplan.SPARES}, db)
+        apply_numbering(pid, {"dtype": "SW", "order": [x[0] for x in siteplan.SEED if x[1] == "SW"], "spares": {}}, db)
+        apply_numbering(pid, {"dtype": "MX", "order": [x[0] for x in siteplan.SEED if x[1] == "MX"], "spares": {}}, db)
+        p = _project(db, pid)
     for f in files:
         rows = inv.read_meraki_csv(await f.read())
         if not rows: continue
@@ -305,6 +312,42 @@ async def import_meraki(pid: int, files: list[UploadFile] = File(...), db: Sessi
     for d in p.devices: inv.meraki_fill(p, d)
     db.commit()
     return out
+
+
+def _mat_out(x):
+    return {"id": x.id, "part_number": x.part_number, "description": x.description, "qty": x.qty, "status": x.status,
+            "note": x.note, "checked_by": x.checked_by, "checked_at": x.checked_at.isoformat() if x.checked_at else None}
+
+
+@app.get("/api/projects/{pid}/material")
+def get_material(pid: int, db: Session = Depends(get_db)):
+    _project(db, pid)
+    rows = db.query(MaterialItem).filter_by(project_id=pid).order_by(MaterialItem.id).all()
+    if not rows:                                   # primera vez: nace el material del pedido de PARGE
+        from .material import SEED
+        for pn, desc, qty in SEED: db.add(MaterialItem(project_id=pid, part_number=pn, description=desc, qty=qty))
+        db.commit()
+        rows = db.query(MaterialItem).filter_by(project_id=pid).order_by(MaterialItem.id).all()
+    return [_mat_out(x) for x in rows]
+
+
+@app.patch("/api/material/{mid}")
+def patch_material(mid: int, request: Request, body: dict = Body(...), db: Session = Depends(get_db)):
+    x = db.get(MaterialItem, mid)
+    if not x: raise HTTPException(404)
+    if "description" in body: x.description = str(body["description"] or "")[:200]
+    if "qty" in body and str(body["qty"]).isdigit(): x.qty = int(body["qty"])
+    if "note" in body: x.note = str(body["note"] or "")[:300]
+    if "status" in body:
+        st = body["status"]
+        if st not in ("pending", "ok", "nok"): raise HTTPException(400, "Estado no válido")
+        if st == "nok" and not (body.get("note") or x.note or "").strip():
+            raise HTTPException(400, "Si no ha llegado (NOK) escribe una nota: qué falta o cuántos llegaron")
+        x.status = st
+        x.checked_by = unquote(request.headers.get("x-user-name") or "")[:40] if st != "pending" else ""
+        x.checked_at = dt.datetime.utcnow() if st != "pending" else None
+    db.commit()
+    return _mat_out(x)
 
 
 @app.get("/api/projects/{pid}/models")

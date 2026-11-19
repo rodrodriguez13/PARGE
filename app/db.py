@@ -92,6 +92,20 @@ class Device(Base):
     project = relationship("Project", back_populates="devices")
 
 
+class MaterialItem(Base):
+    """Material pasivo del pedido (cables, SFP, twinax, fuentes, módulos...): el técnico lo valida con OK o NOK + nota."""
+    __tablename__ = "material"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    part_number = Column(String, default="")
+    description = Column(String, default="")
+    qty = Column(Integer, default=1)
+    status = Column(String, default="pending")       # pending | ok | nok
+    note = Column(String, default="")
+    checked_by = Column(String, default="")
+    checked_at = Column(DateTime, nullable=True)
+
+
 class FileBlob(Base):
     """Fotos, planos y logos: van en la base de datos para que sobrevivan a los redespliegues sin discos ni buckets."""
     __tablename__ = "files"
