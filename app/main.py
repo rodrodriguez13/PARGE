@@ -7,7 +7,7 @@ from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, object_session
 
-from .db import (init_db, SessionLocal, DATA_DIR, ChainProfile, Project, Device, Rack, Scan, ApPlan, ApMarker, MaterialItem)
+from .db import (init_db, SessionLocal, DATA_DIR, ChainProfile, Project, Device, Rack, Scan, ApPlan, ApMarker, MaterialItem, ExtraPort)
 from . import naming, inventory as inv, vision, approcess as ap, siteplan, storage, auth
 from PIL import Image, ImageOps
 
@@ -87,7 +87,7 @@ def rack_out(r):
 
 
 # ------------------------------------------------------------------ acceso
-APP_VERSION = "2026.11.19-n"
+APP_VERSION = "2026.11.19-o"
 
 
 @app.middleware("http")
@@ -211,6 +211,7 @@ def reset_project(pid: int, body: dict = Body(...), db: Session = Depends(get_db
     for pl in db.query(ApPlan).filter_by(project_id=pid): storage.delete(f"plan:{pl.id}", db); db.delete(pl)
     for sc in db.query(Scan).filter_by(project_id=pid): db.delete(sc)
     for x in db.query(MaterialItem).filter_by(project_id=pid): db.delete(x)
+    for x in db.query(ExtraPort).filter_by(project_id=pid): db.delete(x)
     for d in list(p.devices): db.delete(d)
     for r in list(p.racks): db.delete(r)
     db.commit()
@@ -620,15 +621,40 @@ def _portmap(p):
     for sw in sorted([d for d in p.devices if d.dtype == "SW"], key=lambda d: (naming.parse_box_code(d.box_code)[1] or 999, d.id)):
         n = naming.switch_ports(sw.model)
         ports = {d.sw_port: d for d in p.devices if d.sw_id == sw.id and d.sw_port}
+        extras = {x.port: x for x in _db_of(p).query(ExtraPort).filter_by(project_id=p.id, sw_id=sw.id)}
         r = racks.get(sw.rack_id)
         out.append({"id": sw.id, "box_code": sw.box_code, "model": sw.model, "name": naming.device_name(p, sw, r)[0],
                     "rack": r.code if r else "", "n_ports": n, "feeds": (plan.get(sw.box_code) or {}).get("feeds"),
                     "installed": bool(sw.installed),
                     "ports": [{"port": i, "device_id": ports[i].id, "box_code": ports[i].box_code, "installed": bool(ports[i].installed),
                                "name": naming.device_name(p, ports[i], racks.get(ports[i].rack_id))[0], "room": ports[i].room,
-                               "floor": ports[i].floor} if i in ports else {"port": i} for i in range(1, n + 1)]})
+                               "floor": ports[i].floor} if i in ports else
+                              ({"port": i, "extra": True, "label": extras[i].label, "connected": bool(extras[i].connected)} if i in extras else {"port": i})
+                              for i in range(1, n + 1)]})
     unassigned = [d.id for d in p.devices if d.dtype == "AP" and not d.spare and not d.sw_id]
     return {"switches": out, "unassigned": unassigned}
+
+
+def _db_of(p):
+    from sqlalchemy.orm import object_session
+    return object_session(p)
+
+
+@app.put("/api/projects/{pid}/extra-ports")
+def put_extra_port(pid: int, body: dict, db: Session = Depends(get_db)):
+    """Añade, cambia o quita la leyenda de un puerto libre (body: sw_id, port, label, connected)."""
+    _project(db, pid)
+    sw_id, port = int(body.get("sw_id") or 0), int(body.get("port") or 0)
+    if not sw_id or not port: raise HTTPException(400, "Falta switch o puerto")
+    x = db.query(ExtraPort).filter_by(project_id=pid, sw_id=sw_id, port=port).first()
+    label = str(body.get("label") or "").strip()[:20]
+    if body.get("delete") or not label:
+        if x: db.delete(x)
+    else:
+        if not x: x = ExtraPort(project_id=pid, sw_id=sw_id, port=port); db.add(x)
+        x.label = label; x.connected = bool(body.get("connected"))
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/projects/{pid}/portmap")
@@ -646,8 +672,9 @@ def portmap_xlsx(pid: int, db: Session = Depends(get_db)):
     for c in ws[1]: c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0B3A63")
     for sw in pm["switches"]:
         for pt in sw["ports"]:
-            ws.append([sw["box_code"], sw["name"], sw["model"], sw["rack"], pt["port"], pt.get("name", ""), pt.get("box_code", ""),
-                       pt.get("floor", ""), pt.get("room", ""), ("YES" if pt["installed"] else "NO") if pt.get("device_id") else ""])
+            ws.append([sw["box_code"], sw["name"], sw["model"], sw["rack"], pt["port"], pt.get("name", "") or pt.get("label", ""), pt.get("box_code", ""),
+                       pt.get("floor", ""), pt.get("room", ""),
+                       ("YES" if pt["installed"] else "NO") if pt.get("device_id") else (("YES" if pt["connected"] else "NO") if pt.get("extra") else "")])
     for col, w in zip("ABCDEFGHIJ", (9, 30, 20, 8, 7, 36, 11, 8, 9, 11)): ws.column_dimensions[col].width = w
     bio = io.BytesIO(); wb.save(bio)
     return Response(bio.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

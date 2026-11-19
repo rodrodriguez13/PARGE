@@ -106,6 +106,17 @@ class MaterialItem(Base):
     checked_at = Column(DateTime, nullable=True)
 
 
+class ExtraPort(Base):
+    """Puerto de un switch que no estaba previsto: el técnico le pone una leyenda y marca si está conectado."""
+    __tablename__ = "extra_ports"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    sw_id = Column(Integer, index=True)
+    port = Column(Integer)
+    label = Column(String, default="")
+    connected = Column(Boolean, default=False)
+
+
 class FileBlob(Base):
     """Fotos, planos y logos: van en la base de datos para que sobrevivan a los redespliegues sin discos ni buckets."""
     __tablename__ = "files"

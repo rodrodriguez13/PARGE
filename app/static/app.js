@@ -623,9 +623,11 @@ async function instPorts(box) {
   S.portmap.switches.forEach(sw => {
     const used = sw.ports.filter(p => p.device_id), done = used.filter(p => p.installed).length;
     const num = pt => { const m = /AP(\d+)$/.exec(pt.name || ''); return m ? m[1] : (pt.box_code || ''); };
-    const mport = (pt, top) => { const u = pt.device_id; const lab = h('div', { class: 'mpn' }, pt.port);
-      const jack = h('button', { class: 'mp' + (u ? (pt.installed ? ' inst' : ' ap') : ''), title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · instalado' : ' · pendiente'}` : `Puerto ${pt.port} libre`,
-        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } } }, u ? h('b', {}, 'AP' + num(pt)) : h('span', { class: 'jk' }), u && pt.installed ? h('i', {}, '✓') : null);
+    const mport = (pt, top) => { const u = pt.device_id, ex = pt.extra; const lab = h('div', { class: 'mpn' }, pt.port);
+      const jack = h('button', { class: 'mp' + (u ? (pt.installed ? ' inst' : ' ap') : ex ? (pt.connected ? ' inst' : ' ap') : ''),
+        title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · conectado' : ' · pendiente'}` : ex ? `${pt.label}${pt.connected ? ' · conectado' : ' · pendiente'}` : `Puerto ${pt.port} libre: pulsa para añadir un dispositivo`,
+        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } else extraDlg(sw, pt, redraw); } },
+        u ? h('b', {}, 'AP' + num(pt)) : ex ? h('b', {}, pt.label) : h('span', { class: 'jk' }), (u && pt.installed) || (ex && pt.connected) ? h('i', {}, '✓') : null);
       return h('div', { class: 'mpc' }, top ? lab : null, jack, top ? null : lab); };
     const cols = Math.ceil(sw.n_ports / 2), groups = [];
     for (let g = 0; g < cols; g += 6) {                       // como el dashboard de Meraki: bloques de 12 puertos, impares arriba / pares abajo
@@ -637,12 +639,24 @@ async function instPorts(box) {
     box.append(h('div', { class: 'card swcard' }, h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, `${sw.box_code} · ${sw.model.replace(/-M-HILU/, '')}`), h('span', { class: 'badge' }, sw.rack || 'sin rack'), h('span', { class: 'grow' }),
       h('span', { class: 'hint' }, `${used.length} APs · ${done} instalados · ${sw.n_ports} puertos`)),
       h('div', { class: 'fptitle' }, `${sw.name}  ·  Frontal`), h('div', { class: 'hint' }, `APs: puertos ${range} (${used.length})`),
-      h('div', { class: 'fplegend' }, h('i', { class: 'mp ap lg' }), ' AP que va en ese puerto (pendiente)  ', h('i', { class: 'mp inst lg' }), ' AP conectado  ', h('i', { class: 'mp lg' }), ' Puerto libre'),
+      h('div', { class: 'fplegend' }, h('i', { class: 'mp ap lg' }), ' Dispositivo pendiente  ', h('i', { class: 'mp inst lg' }), ' Dispositivo conectado  ', h('i', { class: 'mp lg' }), ' Puerto libre'),
       h('div', { class: 'mchassis' }, h('div', { class: 'mgrps' }, groups)),
-      h('div', { class: 'hint' }, 'Cada puerto muestra el AP que debe ir conectado. Arriba 1, 3, 5… / abajo 2, 4, 6…')));
+      h('div', { class: 'hint' }, 'Cada puerto muestra el dispositivo que debe ir conectado. Pulsa un puerto libre para añadir uno no previsto. Arriba 1, 3, 5… / abajo 2, 4, 6…')));
   });
   const un = S.portmap.unassigned.map(id => byId[id]).filter(Boolean);
   if (un.length) box.append(h('div', { class: 'card', style: 'background:var(--warn-bg)' }, h('b', {}, `${un.length} AP(s) sin puerto: `), un.map(d => d.box_code || d.model).join(', '), h('div', { class: 'hint' }, 'Normalmente es que faltan códigos de caja o el switch. Pulsa «Recalcular puertos» tras numerar.')));
+}
+
+function extraDlg(sw, pt, after) {
+  const dlg = h('dialog', { class: 'dlg' });
+  const lab = h('input', { placeholder: 'Leyenda (p. ej. CAM1)', maxlength: 20, value: pt.label || '', style: 'text-transform:uppercase' });
+  const chk = h('input', { type: 'checkbox', checked: !!pt.connected });
+  const save = async del => { await api('PUT', `/api/projects/${pid()}/extra-ports`, { sw_id: sw.id, port: pt.port, label: lab.value, connected: chk.checked, delete: del }); dlg.close(); dlg.remove(); await loadPortmap(); after(); };
+  dlg.append(h('h2', {}, `${sw.box_code} · puerto ${pt.port}`), h('label', {}, 'Leyenda', lab), h('label', { class: 'row', style: 'gap:8px' }, chk, ' Dispositivo conectado'),
+    h('div', { class: 'row', style: 'margin-top:14px' }, pt.extra ? h('button', { class: 'btn danger', onclick: guard(() => save(true)) }, 'Quitar') : null, h('span', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: () => { dlg.close(); dlg.remove(); } }, 'Cancelar'),
+      h('button', { class: 'btn primary', onclick: guard(async () => { if (!lab.value.trim()) { toast('Escribe la leyenda', true); return; } await save(false); }) }, 'Guardar')));
+  document.body.append(dlg); dlg.showModal(); lab.focus();
 }
 
 /* C · switches y firewall */
