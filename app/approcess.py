@@ -348,9 +348,11 @@ def guess_floors(pdf_path):
         for i, pg in enumerate(doc):
             txt = pg.get_text()
             if not re.search(r"Plan\s*:?\s*(R\s*[+\-]\s*\d+|RDC)", txt, re.I):
-                pix = pg.get_pixmap(dpi=110, alpha=False)
+                r = pg.rect
+                clip = fitz.Rect(r.x0, r.y0, r.x0 + r.width * 0.4, r.y0 + r.height * 0.8)   # solo la zona del rótulo
+                pix = pg.get_pixmap(dpi=100, alpha=False, clip=clip)
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                txt = pytesseract.image_to_string(img.crop((0, 0, int(img.width * 0.4), int(img.height * 0.8))), config="--psm 11")
+                txt = pytesseract.image_to_string(img, config="--psm 11")
             m = re.search(r"Plan\s*:?\s*R\s*([+\-])\s*(\d+)", txt, re.I)
             if m:
                 out[str(i)] = ("-" if m.group(1) == "-" else "") + str(int(m.group(2)))
