@@ -130,3 +130,17 @@ tr:hover td{background:#fafcff}
 .whoami{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--navy)}
 #login{position:fixed;inset:0;background:var(--cream);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
 .logincard{width:100%;max-width:360px}
+
+/* frontal de switch */
+.fptitle{font-weight:700;font-size:15px;margin:8px 0 2px}
+.fplegend{display:flex;align-items:center;gap:4px;margin:6px 0 10px;font-size:12px;color:var(--mute);flex-wrap:wrap}
+.fplegend .fp{width:16px;height:16px;min-width:0;height:16px;display:inline-block;pointer-events:none}
+.fpchassis{background:#e3e6ec;border:2px solid #222;border-radius:10px;padding:8px 10px 10px;overflow-x:auto}
+.fplabel{font-size:11px;font-weight:700;color:#333;margin-bottom:6px}
+.fpports{display:flex;gap:12px;width:max-content}
+.fpgrp{display:flex;flex-direction:column;gap:6px}
+.fprow{display:flex;gap:4px}
+.fp{all:unset;box-sizing:border-box;width:36px;height:46px;border-radius:5px;border:1px solid #222;background:#bdbdbd;color:#444;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15;cursor:default}
+.fp b{font-size:12px}.fp span{font-size:10px;font-weight:700}.fp small{font-size:9px;font-weight:700}
+.fp.ap{background:#8fd19e;color:#14391f;cursor:pointer}
+.fp.inst{background:#2fb344;color:#fff;cursor:pointer}

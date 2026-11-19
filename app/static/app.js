@@ -640,16 +640,25 @@ async function instPorts(box) {
     h('span', { class: 'grow' }), recalc, h('button', { class: 'btn primary', onclick: () => download(`/api/projects/${pid()}/portmap.xlsx`) }, 'Descargar Port Map (xlsx)'))));
   const sel = byId[S.instSel]; if (sel) box.append(devPanel(sel, redraw));
   S.portmap.switches.forEach(sw => {
-    const half = Math.ceil(sw.n_ports / 2), grid = h('div', { class: 'ports', style: `grid-template-columns:repeat(${half},minmax(34px,1fr))` });
-    const cell = pt => { const used = pt.device_id; return h('button', { class: 'port' + (used ? (pt.installed ? ' inst' : ' used') : ''), title: used ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}` : 'Libre',
-      onclick: () => { if (used) { S.instSel = pt.device_id; redraw(); } } }, h('small', {}, pt.port), h('b', {}, used ? pt.box_code : '')); };
-    const top = sw.ports.filter(p => p.port % 2 === 1), bot = sw.ports.filter(p => p.port % 2 === 0);
-    top.forEach((pt, i) => { grid.append(cell(pt)); }); // fila 1 (impares) …
-    const g2 = h('div', { class: 'ports', style: `grid-template-columns:repeat(${half},minmax(34px,1fr))` }); bot.forEach(pt => g2.append(cell(pt)));
     const used = sw.ports.filter(p => p.device_id), done = used.filter(p => p.installed).length;
+    const num = pt => { const m = /AP(\d+)$/.exec(pt.name || ''); return m ? m[1] : (pt.box_code || ''); };
+    const cell = pt => { const u = pt.device_id;
+      return h('button', { class: 'fp' + (u ? (pt.installed ? ' inst' : ' ap') : ''), title: u ? `${pt.name}${pt.room ? ' · hab. ' + pt.room : ''}${pt.installed ? ' · instalado' : ''}` : 'Libre',
+        onclick: () => { if (u) { S.instSel = pt.device_id; redraw(); } } },
+        h('b', {}, pt.port), h('span', {}, u ? (pt.installed ? '✓' : 'AP') : ''), h('small', {}, u ? num(pt) : '')); };
+    const cols = Math.ceil(sw.n_ports / 2), groups = [];
+    for (let g = 0; g < cols; g += 4) {                       // grupos de 4 columnas, impares arriba / pares abajo
+      const top = [], bot = [];
+      for (let c = g; c < Math.min(g + 4, cols); c++) { const a = sw.ports.find(p => p.port === 2 * c + 1), z = sw.ports.find(p => p.port === 2 * c + 2); if (a) top.push(cell(a)); if (z) bot.push(cell(z)); }
+      groups.push(h('div', { class: 'fpgrp' }, h('div', { class: 'fprow' }, top), h('div', { class: 'fprow' }, bot)));
+    }
+    const nums = used.map(p => p.port), range = nums.length ? `${Math.min(...nums)}-${Math.max(...nums)}` : '—';
     box.append(h('div', { class: 'card swcard' }, h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, `${sw.box_code} · ${sw.model.replace(/-M-HILU/, '')}`), h('span', { class: 'badge' }, sw.rack || 'sin rack'), h('span', { class: 'grow' }),
-      h('span', { class: 'hint' }, `${used.length} puertos con AP · ${done} instalados · ${sw.n_ports} puertos`)), h('div', { class: 'mono hint' }, sw.name),
-      used.length || sw.feeds ? h('div', { class: 'swbody' }, grid, g2) : h('div', { class: 'hint', style: 'margin:10px 0' }, 'Sin APs conectados por ahora.')));
+      h('span', { class: 'hint' }, `${used.length} APs · ${done} instalados · ${sw.n_ports} puertos`)),
+      h('div', { class: 'fptitle' }, `${sw.name}  ·  Frontal`), h('div', { class: 'hint' }, `APs: puertos ${range} (${used.length})`),
+      h('div', { class: 'fplegend' }, h('i', { class: 'fp ap' }), ' AP pendiente  ', h('i', { class: 'fp inst' }), ' AP instalado  ', h('i', { class: 'fp' }), ' Libre'),
+      used.length ? h('div', { class: 'fpchassis' }, h('div', { class: 'fplabel' }, sw.model.replace(/-M-HILU/, '')), h('div', { class: 'fpports' }, groups)) : h('div', { class: 'hint', style: 'margin:10px 0' }, 'Sin APs conectados por ahora.'),
+      h('div', { class: 'hint' }, 'El número bajo cada puerto es el nº del AP. Arriba 1,3,5… / abajo 2,4,6…')));
   });
   const un = S.portmap.unassigned.map(id => byId[id]).filter(Boolean);
   if (un.length) box.append(h('div', { class: 'card', style: 'background:var(--warn-bg)' }, h('b', {}, `${un.length} AP(s) sin puerto: `), un.map(d => d.box_code || d.model).join(', '), h('div', { class: 'hint' }, 'Normalmente es que faltan códigos de caja o el switch. Pulsa «Recalcular puertos» tras numerar.')));
